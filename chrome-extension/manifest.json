@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "Local Social Media Archiver",
+  "version": "0.1.0",
+  "description": "Save media visible in your own Instagram, Threads, and LinkedIn browser sessions locally.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Save post media locally",
+    "default_icon": {
+      "16": "assets/icons/icon-16.png",
+      "48": "assets/icons/icon-48.png",
+      "128": "assets/icons/icon-128.png"
+    }
+  },
+  "icons": {
+    "16": "assets/icons/icon-16.png",
+    "48": "assets/icons/icon-48.png",
+    "128": "assets/icons/icon-128.png"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "permissions": ["activeTab", "scripting", "downloads", "storage"],
+  "host_permissions": [
+    "https://www.instagram.com/*",
+    "https://www.threads.net/*",
+    "https://www.linkedin.com/*",
+    "https://*.reddit.com/*",
+    "https://*.redd.it/*",
+    "https://*.cdninstagram.com/*",
+    "https://*.fbcdn.net/*",
+    "https://*.licdn.com/*",
+    "http://localhost:41595/*",
+    "http://127.0.0.1:41595/*"
+  ],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ]
+}

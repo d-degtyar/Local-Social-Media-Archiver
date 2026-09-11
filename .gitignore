@@ -1,0 +1,7 @@
+# Generated release archives
+*.zip
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/

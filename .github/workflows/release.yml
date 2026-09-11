@@ -1,0 +1,26 @@
+name: Build release archives
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Package Chrome extension
+        run: cd chrome-extension && zip -r ../local-social-media-archiver-chrome.zip .
+      - name: Package Eagle Companion
+        run: cd eagle-companion && zip -r ../local-social-media-archiver-eagle-companion.zip .
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            local-social-media-archiver-chrome.zip
+            local-social-media-archiver-eagle-companion.zip

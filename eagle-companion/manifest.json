@@ -1,0 +1,22 @@
+{
+  "id": "LSMAEAGLECOMPANION",
+  "version": "0.1.0",
+  "platform": "all",
+  "arch": "all",
+  "name": "Local Social Media Archiver",
+  "logo": "/logo.png",
+  "keywords": ["social media", "instagram", "linkedin", "reddit", "reference", "browser"],
+  "devTools": false,
+  "main": {
+    "url": "index.html",
+    "width": 540,
+    "height": 520,
+    "minWidth": 460,
+    "minHeight": 440,
+    "resizable": true,
+    "maximizable": false,
+    "multiple": false,
+    "runAfterInstall": true,
+    "backgroundColor": "#f7f8fa"
+  }
+}

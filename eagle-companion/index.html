@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Local Social Media Archiver</title>
+    <link rel="stylesheet" href="style.css">
+  </head>
+  <body>
+    <main>
+      <img class="logo" src="logo.png" alt="Local Social Media Archiver logo">
+      <h1>Local Social Media Archiver</h1>
+      <p class="lead">Save visual references from the web directly to Eagle or your computer.</p>
+
+      <section class="actions" aria-label="Setup actions">
+        <button id="install-extension" class="primary">Install Chrome Extension</button>
+        <button id="test-connection" class="secondary">Test Eagle Connection</button>
+      </section>
+
+      <output id="status" class="status" aria-live="polite">Checking local Eagle connection…</output>
+
+      <section class="how-it-works">
+        <h2>How it works</h2>
+        <ol>
+          <li>Install the Chrome extension from its GitHub release or the Chrome Web Store.</li>
+          <li>Open a post with media in your existing browser session.</li>
+          <li>Choose <strong>Save to Eagle</strong> in the extension.</li>
+        </ol>
+      </section>
+
+      <p class="privacy">Works with your existing browser session. No account or external server required.</p>
+    </main>
+    <script src="js/config.js"></script>
+    <script src="js/plugin.js"></script>
+  </body>
+</html>
