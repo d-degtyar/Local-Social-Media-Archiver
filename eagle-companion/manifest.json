@@ -1,6 +1,6 @@
 {
   "id": "LSMAEAGLECOMPANION",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "platform": "all",
   "arch": "all",
   "name": "Local Social Media Archiver",
@@ -10,9 +10,9 @@
   "main": {
     "url": "index.html",
     "width": 540,
-    "height": 520,
+    "height": 640,
     "minWidth": 460,
-    "minHeight": 440,
+    "minHeight": 560,
     "resizable": true,
     "maximizable": false,
     "multiple": false,

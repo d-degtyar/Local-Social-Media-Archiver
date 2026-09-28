@@ -1,4 +1,9 @@
-// Replace this with the public GitHub repository or Chrome Web Store URL before publishing.
-// Keeping this separate makes release configuration explicit and avoids hard-coding a personal URL.
-// Example: "https://github.com/YOUR_GITHUB_USERNAME/local-social-media-archiver/releases/latest"
-globalThis.LSMA_CHROME_EXTENSION_URL = "https://github.com/d-degtyar/Local-Social-Media-Archiver/releases/latest";
+// Public install sources for the Chrome extension.
+// While the extension is distributed through GitHub Releases, the companion shows
+// a guided "Load unpacked" setup. Set LSMA_CHROME_WEB_STORE_URL once a Chrome Web
+// Store listing exists: the companion then switches to a single install button.
+globalThis.LSMA_CONFIG = {
+  repositoryUrl: "https://github.com/d-degtyar/Local-Social-Media-Archiver",
+  extensionZipUrl: "https://github.com/d-degtyar/Local-Social-Media-Archiver/releases/latest/download/local-social-media-archiver-chrome.zip",
+  chromeWebStoreUrl: ""
+};

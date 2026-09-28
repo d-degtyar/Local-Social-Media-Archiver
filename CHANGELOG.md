@@ -8,6 +8,7 @@
 - Downloads now report completed, still-running, and failed files instead of counting started downloads.
 - Clear message when a video is only available as an undownloadable stream.
 - CI syntax check for extension and plugin scripts.
+- Eagle Companion: guided GitHub install (direct .zip download, copyable `chrome://extensions`, 4 steps), red brand accent, dark-mode polish, and a switch to a single Chrome Web Store button once one exists.
 
 ## 0.1.0 — 2026-09-12
 

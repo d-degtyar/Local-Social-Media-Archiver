@@ -8,27 +8,52 @@
   </head>
   <body>
     <main>
-      <img class="logo" src="logo.png" alt="Local Social Media Archiver logo">
-      <h1>Local Social Media Archiver</h1>
-      <p class="lead">Save visual references from the web directly to Eagle or your computer.</p>
-
-      <section class="actions" aria-label="Setup actions">
-        <button id="install-extension" class="primary">Install Chrome Extension</button>
-        <button id="test-connection" class="secondary">Test Eagle Connection</button>
-      </section>
+      <header class="intro">
+        <img class="logo" src="logo.png" alt="">
+        <div>
+          <h1>Local Social Media Archiver</h1>
+          <p class="lead">Save posts from Instagram, Threads, LinkedIn, and Reddit into Eagle — with the caption, author, and link.</p>
+        </div>
+      </header>
 
       <output id="status" class="status" aria-live="polite">Checking local Eagle connection…</output>
 
-      <section class="how-it-works">
-        <h2>How it works</h2>
-        <ol>
-          <li>Install the Chrome extension from its GitHub release or the Chrome Web Store.</li>
-          <li>Open a post with media in your existing browser session.</li>
-          <li>Choose <strong>Save to Eagle</strong> in the extension.</li>
+      <section id="store-install" class="card" hidden>
+        <h2>Install the Chrome extension</h2>
+        <button id="open-store" class="primary">Open Chrome Web Store</button>
+      </section>
+
+      <section id="manual-install" class="card">
+        <h2>Install the Chrome extension <span class="badge">free · open source</span></h2>
+        <ol class="steps">
+          <li>
+            <span>Download the extension and <strong>unzip</strong> it.</span>
+            <button id="download-zip" class="primary small">Download .zip</button>
+          </li>
+          <li>
+            <span>Open <code>chrome://extensions</code> in Chrome.</span>
+            <button id="copy-extensions-url" class="secondary small">Copy address</button>
+          </li>
+          <li><span>Turn on <strong>Developer mode</strong> (top right).</span></li>
+          <li><span>Click <strong>Load unpacked</strong> and select the unzipped folder.</span></li>
+        </ol>
+        <p class="note">Distributed through GitHub Releases. Chrome shows a Developer mode notice for extensions installed this way — the full source is public.</p>
+      </section>
+
+      <section class="card">
+        <h2>Save your first post</h2>
+        <ol class="steps plain">
+          <li><span>Keep Eagle open, then open a post in Chrome.</span></li>
+          <li><span>Click the extension icon → <strong>Save to Eagle</strong>.</span></li>
         </ol>
       </section>
 
-      <p class="privacy">Works with your existing browser session. No account or external server required.</p>
+      <footer>
+        <button id="test-connection" class="link">Test Eagle connection</button>
+        <span aria-hidden="true">·</span>
+        <button id="open-repository" class="link">Source &amp; help on GitHub</button>
+      </footer>
+      <p class="privacy">No account, no cloud. The extension talks to Eagle only on this computer.</p>
     </main>
     <script src="js/config.js"></script>
     <script src="js/plugin.js"></script>
