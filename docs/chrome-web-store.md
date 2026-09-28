@@ -29,7 +29,7 @@ Save media from Instagram, Threads, LinkedIn, and Reddit posts to Eagle or your 
 > • the caption as a note
 >
 > Supported:
-> • Instagram posts, carousels (up to 20 items), and Reels
+> • Instagram posts, carousels (up to 20 items), Reels, and Stories
 > • LinkedIn images, carousels, and videos
 > • Threads posts
 > • Reddit images, full galleries, and videos

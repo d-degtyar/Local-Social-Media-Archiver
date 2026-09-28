@@ -16,7 +16,7 @@
     // performance-resource fallback also picked up feed previews and avatars.
     // Instagram carousels allow up to 20 items. This hard cap is also a safety
     // net if a platform changes its markup and the root becomes a feed.
-    const instagramPost = platform === 'instagram' ? instagramPostData() : null;
+    const instagramPost = platform === 'instagram' ? instagramPostData() || await fetchInstagramMedia() : null;
     const instagramMedia = instagramPost ? mediaFromInstagramNode(instagramPost) : [];
     const domMedia = collectMedia(root);
     const linkedInEmbed = platform === 'linkedin' ? await collectLinkedInEmbed() : null;
@@ -149,6 +149,44 @@
       } catch { /* Not every inline script contains JSON. */ }
     }
     return null;
+  }
+  // Posts opened from the feed or a profile are loaded by XHR, so their data is
+  // not in the page's inline JSON; Stories never are. Ask the same web API the
+  // Instagram site uses, with the user's session, for the media in the URL.
+  async function fetchInstagramMedia() {
+    const mediaId = instagramStoryId() || instagramMediaId(instagramShortcode());
+    if (!mediaId) return null;
+    try {
+      const response = await fetch(`/api/v1/media/${mediaId}/info/`, {
+        credentials: 'include',
+        headers: { 'X-IG-App-ID': instagramAppId(), 'X-Requested-With': 'XMLHttpRequest' }
+      });
+      if (!response.ok) return null;
+      const payload = await response.json();
+      return payload?.items?.[0] || null;
+    } catch { return null; }
+  }
+  function instagramStoryId() {
+    // /stories/<username>/<media id>/. Highlights use a highlight id instead.
+    const match = location.pathname.match(/^\/stories\/([^/]+)\/(\d+)/);
+    return match && match[1] !== 'highlights' ? match[2] : '';
+  }
+  function instagramMediaId(shortcode) {
+    // A shortcode is the media id in URL-safe base64. Private posts append
+    // extra characters after the first 11.
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+    if (!shortcode) return '';
+    let id = 0n;
+    for (const character of shortcode.slice(0, 11)) {
+      const value = alphabet.indexOf(character);
+      if (value < 0) return '';
+      id = id * 64n + BigInt(value);
+    }
+    return id.toString();
+  }
+  function instagramAppId() {
+    const match = document.documentElement.innerHTML.match(/"(?:X-IG-App-ID|APP_ID)":"(\d{6,})"/);
+    return match?.[1] || '936619743392459';
   }
   function instagramShortcode() {
     const parts = location.pathname.split('/').filter(Boolean);

@@ -6,7 +6,7 @@ Save visual references from the web directly to [Eagle](https://eagle.cool/) or 
 
 ## What it supports
 
-- Instagram posts, carousels, and Reels
+- Instagram posts, carousels, Reels, and Stories
 - LinkedIn images, carousels, and videos
 - Threads posts
 - Reddit images, full galleries, and videos (Reddit serves video and audio separately, so saved videos are silent)
