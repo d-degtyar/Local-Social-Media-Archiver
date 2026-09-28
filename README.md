@@ -8,7 +8,8 @@ Save visual references from the web directly to [Eagle](https://eagle.cool/) or 
 
 - Instagram posts, carousels, and Reels
 - LinkedIn images, carousels, and videos
-- Reddit posts and media
+- Threads posts
+- Reddit images, full galleries, and videos (Reddit serves video and audio separately, so saved videos are silent)
 - Any other site through **I feel lucky** — an opt-in, best-effort media collector
 - Eagle import with the original post URL, a clean title, tags, and caption/description
 - Local Downloads fallback with a `post.json` file
@@ -49,14 +50,18 @@ The Chrome extension saves directly to Eagle's local Web API at `localhost:41595
 ```text
 chrome-extension/    Chrome Manifest V3 extension
 eagle-companion/     Eagle Plugin Marketplace companion/onboarding plugin
-docs/images/          README assets
+docs/                 README images, brand icon sources, store assets
 ```
 
 ## Development
 
 Load `chrome-extension/` as an unpacked extension while developing. The Eagle companion can be installed from `eagle-companion/` in Eagle's developer plugin flow.
 
-Before distributing the Eagle companion, set the public GitHub repository or Chrome Web Store URL in [`eagle-companion/js/config.js`](eagle-companion/js/config.js). This powers its **Install Chrome Extension** button.
+The Eagle companion reads its install links from [`eagle-companion/js/config.js`](eagle-companion/js/config.js). While the extension ships through GitHub Releases, the companion shows a guided **Load unpacked** setup with a direct `.zip` download. Set `chromeWebStoreUrl` once a Chrome Web Store listing exists and the companion switches to a single install button.
+
+## Privacy policy
+
+See [PRIVACY.md](PRIVACY.md).
 
 ## License
 
