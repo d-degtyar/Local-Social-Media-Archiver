@@ -50,7 +50,7 @@ The Chrome extension saves directly to Eagle's local Web API at `localhost:41595
 ```text
 chrome-extension/    Chrome Manifest V3 extension
 eagle-companion/     Eagle Plugin Marketplace companion/onboarding plugin
-docs/images/          README assets
+docs/                 README images, brand icon sources, store assets
 ```
 
 ## Development
@@ -58,6 +58,10 @@ docs/images/          README assets
 Load `chrome-extension/` as an unpacked extension while developing. The Eagle companion can be installed from `eagle-companion/` in Eagle's developer plugin flow.
 
 The Eagle companion reads its install links from [`eagle-companion/js/config.js`](eagle-companion/js/config.js). While the extension ships through GitHub Releases, the companion shows a guided **Load unpacked** setup with a direct `.zip` download. Set `chromeWebStoreUrl` once a Chrome Web Store listing exists and the companion switches to a single install button.
+
+## Privacy policy
+
+See [PRIVACY.md](PRIVACY.md).
 
 ## License
 
