@@ -1,0 +1,19 @@
+name: Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check JavaScript syntax
+        run: for file in chrome-extension/*.js eagle-companion/js/*.js; do node --check "$file"; done
+      - name: Validate manifests
+        run: for file in chrome-extension/manifest.json eagle-companion/manifest.json; do node -e "JSON.parse(require('fs').readFileSync('$file', 'utf8'))"; done

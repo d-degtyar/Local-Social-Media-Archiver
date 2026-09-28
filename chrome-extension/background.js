@@ -11,7 +11,14 @@ async function archiveActiveTab(destination = 'downloads', universal = false) {
 
   await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['collector.js'] });
   const post = await chrome.tabs.sendMessage(tab.id, { type: 'COLLECT_POST' });
-  if (!post?.media?.length) return { ok: false, error: 'No media found. Open the post itself and wait for photos or videos to load.' };
+  if (!post?.media?.length) {
+    return {
+      ok: false,
+      error: post?.streamedVideo
+        ? 'This video is streamed in chunks and cannot be saved by URL. Play it for a few seconds and retry; some videos cannot be saved.'
+        : 'No media found. Open the post itself and wait for photos or videos to load.'
+    };
+  }
 
   const uniqueMedia = [...new Map(post.media.map(item => [item.url, item])).values()];
   if (destination === 'eagle') return saveToEagle(post, uniqueMedia);
@@ -20,24 +27,54 @@ async function archiveActiveTab(destination = 'downloads', universal = false) {
   const metadata = JSON.stringify({ ...post, archivedAt: new Date().toISOString() }, null, 2);
   await downloadData(`${folder}/post.json`, metadata);
 
-  const results = await Promise.allSettled(uniqueMedia.map((item, index) => {
+  const states = await Promise.all(uniqueMedia.map(async (item, index) => {
     const extension = extensionFrom(item.url, item.kind);
-    return chrome.downloads.download({
-      url: item.url,
-      filename: `${folder}/${String(index + 1).padStart(2, '0')}-${item.kind}.${extension}`,
-      conflictAction: 'uniquify',
-      saveAs: false
-    });
+    try {
+      const id = await chrome.downloads.download({
+        url: item.url,
+        filename: `${folder}/${String(index + 1).padStart(2, '0')}-${item.kind}.${extension}`,
+        conflictAction: 'uniquify',
+        saveAs: false
+      });
+      // download() resolves once a download starts, not when it succeeds.
+      // Expired CDN links fail afterwards with a 403, so wait for the outcome.
+      return await waitForDownload(id);
+    } catch { return 'interrupted'; }
   }));
-  const count = results.filter(result => result.status === 'fulfilled').length;
-  return { ok: true, mediaCount: count };
+  const count = state => states.filter(value => value === state).length;
+  const mediaCount = count('complete');
+  const failed = count('interrupted');
+  if (failed === uniqueMedia.length) return { ok: false, error: 'Downloads failed. Media links may have expired: reload the page and retry.' };
+  return { ok: true, mediaCount, pending: count('in_progress'), failed };
+}
+
+function waitForDownload(id, timeout = 60_000) {
+  return new Promise(resolve => {
+    let done = false;
+    const finish = state => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      chrome.downloads.onChanged.removeListener(listener);
+      resolve(state);
+    };
+    const listener = delta => {
+      if (delta.id === id && delta.state && delta.state.current !== 'in_progress') finish(delta.state.current);
+    };
+    // Large videos may still be running; report them as in progress.
+    const timer = setTimeout(() => finish('in_progress'), timeout);
+    chrome.downloads.onChanged.addListener(listener);
+    chrome.downloads.search({ id }).then(([item]) => {
+      if (item && item.state !== 'in_progress') finish(item.state);
+    }).catch(() => {});
+  });
 }
 
 async function saveToEagle(post, media) {
   const appInfo = await eagleRequest('/api/v2/app/info', { method: 'GET' });
   if (appInfo.status !== 'success') throw new Error('Eagle did not respond. Open Eagle with an active library.');
   const tags = ['social-media', post.platform, ...(post.author ? [safeName(post.author)] : [])];
-  const annotation = [post.text, `\n\nOriginal post: ${post.url}`].join('').slice(0, 15000);
+  const annotation = [post.text, `Original post: ${post.url}`].filter(Boolean).join('\n\n').slice(0, 15000);
   // Eagle's Web API V2 handles app/library state, while importing a remote
   // asset remains on the compatible local V1 endpoint.
   const results = await Promise.allSettled(media.map((item, index) => eagleRequest('/api/item/addFromURL', {
@@ -69,7 +106,7 @@ async function eagleRequest(path, options) {
 function isSupported(url) {
   try {
     const host = new URL(url).hostname;
-    return ['www.instagram.com', 'www.threads.net', 'www.linkedin.com'].includes(host) || host.endsWith('reddit.com');
+    return ['www.instagram.com', 'www.threads.com', 'www.threads.net', 'www.linkedin.com'].includes(host) || host.endsWith('reddit.com');
   } catch { return false; }
 }
 function safeName(value) { return String(value).replace(/[^a-z0-9._-]+/gi, '_').replace(/^_+|_+$/g, '').slice(0, 80) || 'post'; }

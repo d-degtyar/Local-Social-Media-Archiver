@@ -8,7 +8,8 @@ Save visual references from the web directly to [Eagle](https://eagle.cool/) or 
 
 - Instagram posts, carousels, and Reels
 - LinkedIn images, carousels, and videos
-- Reddit posts and media
+- Threads posts
+- Reddit images, full galleries, and videos (Reddit serves video and audio separately, so saved videos are silent)
 - Any other site through **I feel lucky** — an opt-in, best-effort media collector
 - Eagle import with the original post URL, a clean title, tags, and caption/description
 - Local Downloads fallback with a `post.json` file

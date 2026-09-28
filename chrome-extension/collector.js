@@ -14,12 +14,13 @@
     const root = findPostRoot(platform);
     // Deliberately collect only elements rendered inside the post. A previous
     // performance-resource fallback also picked up feed previews and avatars.
-    // A post carousel is normally at most 10 items. This hard cap is also a
-    // safety net if a platform changes its markup and the root becomes a feed.
+    // Instagram carousels allow up to 20 items. This hard cap is also a safety
+    // net if a platform changes its markup and the root becomes a feed.
     const instagramPost = platform === 'instagram' ? instagramPostData() : null;
     const instagramMedia = instagramPost ? mediaFromInstagramNode(instagramPost) : [];
     const domMedia = collectMedia(root);
     const linkedInEmbed = platform === 'linkedin' ? await collectLinkedInEmbed() : null;
+    const redditPost = platform === 'reddit' ? await collectRedditPost() : null;
     // Do not add a network fallback when the structured Instagram data already
     // supplied a video: it is commonly a byte-range copy of the same Reel.
     const reelFallback = platform === 'instagram' && isInstagramReel() && !instagramMedia.some(item => item.kind === 'video')
@@ -37,25 +38,34 @@
       ? instagramMedia
       : linkedInEmbed?.media?.length
         ? linkedInEmbed.media
-        : domMedia;
+        : redditPost?.media?.length
+          ? redditPost.media
+          : domMedia;
     let merged = dedupe([...primaryMedia, ...reelFallback, ...linkedInVideo]);
     // LinkedIn renders a poster frame as an <img> next to every video. It is
     // useful in the page UI but not a separate post asset for the archive.
     if (platform === 'linkedin' && merged.some(item => item.kind === 'video')) {
       merged = merged.filter(item => item.kind === 'video');
     }
-    merged = merged.slice(0, 10);
+    merged = merged.slice(0, MAX_MEDIA);
     return {
       platform,
       url: location.href,
-      title: document.querySelector('meta[property="og:title"]')?.content || document.title,
-      author: platform === 'instagram' ? instagramAuthor(instagramPost) : linkedInEmbed?.author || authorFrom(root, platform),
+      title: redditPost?.title || document.querySelector('meta[property="og:title"]')?.content || document.title,
+      author: platform === 'instagram'
+        ? instagramAuthor(instagramPost)
+        : linkedInEmbed?.author || redditPost?.author || authorFrom(root, platform),
       text: platform === 'instagram'
         ? instagramCaption(instagramPost)
-        : (linkedInEmbed?.text || root?.innerText || document.body.innerText).trim().slice(0, 12000),
-      media: merged
+        : (linkedInEmbed?.text || redditPost?.text || root?.innerText || document.body.innerText).trim().slice(0, 12000),
+      media: merged,
+      // blob: and MediaSource streams cannot be downloaded by URL. Report them
+      // so the popup can explain why a visible video was not saved.
+      streamedVideo: !merged.some(item => item.kind === 'video') && hasStreamedVideo(root)
     };
   }
+
+  const MAX_MEDIA = 20;
 
   function platformName(host) {
     if (host.includes('instagram')) return 'instagram';
@@ -128,7 +138,7 @@
 
   function instagramPostData() {
     const shortcode = instagramShortcode();
-    if (!shortcode) return [];
+    if (!shortcode) return null;
     const scripts = [...document.querySelectorAll('script[type="application/json"], script:not([src])')];
     for (const script of scripts) {
       const text = script.textContent || '';
@@ -138,7 +148,7 @@
         if (post) return post;
       } catch { /* Not every inline script contains JSON. */ }
     }
-    return [];
+    return null;
   }
   function instagramShortcode() {
     const parts = location.pathname.split('/').filter(Boolean);
@@ -204,6 +214,48 @@
       .filter(entry => (entry.transferSize || entry.encodedBodySize || 0) > 200_000)
       .sort((a, b) => (b.transferSize || b.encodedBodySize || 0) - (a.transferSize || a.encodedBodySize || 0));
     return candidates[0] ? [{ url: candidates[0].name, kind: 'video' }] : [];
+  }
+  // Reddit exposes every post as JSON at the same path. It lists all gallery
+  // items (the DOM renders only nearby slides) and a progressive MP4 for video,
+  // where the player itself only holds an undownloadable blob: stream.
+  async function collectRedditPost() {
+    if (!/\/comments\/[a-z0-9]+/i.test(location.pathname)) return null;
+    try {
+      const response = await fetch(`${location.origin}${location.pathname.replace(/\/+$/, '')}.json?raw_json=1`, { credentials: 'include' });
+      if (!response.ok) return null;
+      const listing = await response.json();
+      const data = listing?.[0]?.data?.children?.[0]?.data;
+      if (!data) return null;
+      const source = data.crosspost_parent_list?.[0] || data;
+      return {
+        media: dedupe(redditMedia(source)),
+        title: String(data.title || '').trim(),
+        author: String(data.author || '').trim().slice(0, 80),
+        text: [data.title, data.selftext].filter(Boolean).join('\n\n')
+      };
+    } catch { return null; }
+  }
+  function redditMedia(data) {
+    const video = data.secure_media?.reddit_video || data.media?.reddit_video || data.preview?.reddit_video_preview;
+    if (video?.fallback_url) return [{ url: video.fallback_url, kind: 'video' }];
+    if (data.is_gallery && data.media_metadata) {
+      const order = data.gallery_data?.items?.map(item => item.media_id) || Object.keys(data.media_metadata);
+      return order.flatMap(id => {
+        const item = data.media_metadata[id];
+        if (!item || item.status !== 'valid') return [];
+        if (item.e === 'AnimatedImage') return item.s?.mp4 ? [{ url: item.s.mp4, kind: 'video' }] : item.s?.gif ? [{ url: item.s.gif, kind: 'image' }] : [];
+        return item.s?.u ? [{ url: item.s.u, kind: 'image' }] : [];
+      });
+    }
+    const direct = data.url_overridden_by_dest || data.url || '';
+    if (/^https:\/\/i\.redd\.it\//i.test(direct) || /\.(?:jpe?g|png|webp|gif)(?:\?|$)/i.test(direct)) return [{ url: direct, kind: 'image' }];
+    const preview = data.preview?.images?.[0]?.source?.url;
+    return preview ? [{ url: preview, kind: 'image' }] : [];
+  }
+  function hasStreamedVideo(root) {
+    const scope = root || document;
+    const players = [...scope.querySelectorAll('video'), ...[...scope.querySelectorAll('shreddit-player')].map(player => player.shadowRoot?.querySelector('video')).filter(Boolean)];
+    return players.some(video => /^blob:/i.test(video.currentSrc || video.src || ''));
   }
   function authorFrom(root, platform) {
     const links = [...(root || document).querySelectorAll('a[href]')];

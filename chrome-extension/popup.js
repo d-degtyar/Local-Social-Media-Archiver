@@ -11,7 +11,7 @@ for (const button of document.querySelectorAll('button')) button.addEventListene
     status.value = result.ok
       ? destination === 'eagle'
         ? `Added to Eagle: ${result.mediaCount} media.`
-        : `Downloaded: ${result.mediaCount} media + metadata.`
+        : downloadSummary(result)
       : result.error;
   } catch (error) {
     status.value = `Error: ${error.message}`;
@@ -19,6 +19,13 @@ for (const button of document.querySelectorAll('button')) button.addEventListene
     setDisabled(false);
   }
 });
+
+function downloadSummary({ mediaCount, pending, failed }) {
+  const lines = [`Downloaded: ${mediaCount} media + metadata.`];
+  if (pending) lines.push(`${pending} still downloading — check Chrome's Downloads.`);
+  if (failed) lines.push(`${failed} failed. Links may have expired: reload the page and retry.`);
+  return lines.join('\n');
+}
 
 function setDisabled(disabled) { document.querySelectorAll('button').forEach(button => { button.disabled = disabled; }); }
 
