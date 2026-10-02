@@ -2,6 +2,8 @@
 
 ## 0.2.0 — Unreleased
 
+- Instagram Stories.
+- Instagram posts opened from the feed or a profile now save without reopening them in a new tab.
 - Threads support on `threads.com`.
 - Instagram carousels up to 20 items (previously capped at 10).
 - Reddit: full galleries and videos from the post's JSON instead of the rendered page.
