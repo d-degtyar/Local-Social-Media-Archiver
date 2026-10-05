@@ -86,5 +86,7 @@ Save the media from the post in the current tab (images, carousels, videos, and 
 
 ## After approval
 
+Published: https://chromewebstore.google.com/detail/local-social-media-archiv/hbjcghkjdbmphmbgkjkhncmihcbhenjj
+
 1. Put the store URL into `chromeWebStoreUrl` in `eagle-companion/js/config.js`. The companion then shows a single install button in place of the Load unpacked steps.
 2. Add the store link to the Quick start section in `README.md`.

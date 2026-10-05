@@ -1,5 +1,9 @@
 # Changelog
 
+## Eagle Companion 0.2.1
+
+- One-click install from the Chrome Web Store; the Load unpacked steps are no longer shown.
+
 ## 0.2.0 — Unreleased
 
 - Instagram Stories.

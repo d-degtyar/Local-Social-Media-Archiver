@@ -21,7 +21,7 @@ This plugin is the setup companion: it checks that Eagle is ready to receive pos
 
 Private by design: no account and no server. The extension talks to Eagle only through its local API on your computer.
 
-The extension is distributed through GitHub Releases and installed with Chrome's "Load unpacked" option; the plugin shows each step.
+Install the extension free from the Chrome Web Store: https://chromewebstore.google.com/detail/local-social-media-archiv/hbjcghkjdbmphmbgkjkhncmihcbhenjj
 
 **Support contact:** https://github.com/d-degtyar/Local-Social-Media-Archiver/issues
 

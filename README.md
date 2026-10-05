@@ -20,11 +20,20 @@ Save visual references from the web directly to [Eagle](https://eagle.cool/) or 
 
 ### Chrome extension
 
+**[Install from the Chrome Web Store](https://chromewebstore.google.com/detail/local-social-media-archiv/hbjcghkjdbmphmbgkjkhncmihcbhenjj)**
+
+1. Click **Add to Chrome** on the store page and pin the extension to your toolbar.
+2. Open a supported post, wait for its media to load, then click the extension icon.
+3. Choose **Save to Eagle** or **Save to Downloads**.
+
+<details>
+<summary>Manual install from GitHub Releases</summary>
+
 1. Download the latest `local-social-media-archiver-chrome.zip` from [Releases](../../releases), then unpack it.
 2. Open `chrome://extensions` in Chrome and turn on **Developer mode**.
 3. Click **Load unpacked** and select the unpacked folder.
-4. Open a supported post, wait for its media to load, then click the extension icon.
-5. Choose **Save to Eagle** or **Save to Downloads**.
+
+</details>
 
 For Instagram Reels and LinkedIn video, play the video for a few seconds before saving so the browser has loaded the media stream.
 
