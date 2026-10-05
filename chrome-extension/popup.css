@@ -12,7 +12,3 @@ button { border: 0; border-radius: 8px; padding: 10px 12px; background: #e0161f;
 button:hover:not(:disabled) { filter: brightness(.92); }
 button:disabled { opacity: .6; cursor: wait; }
 output { min-height: 20px; white-space: pre-line; }
-.support { display: flex; gap: 12px; padding-top: 10px; border-top: 1px solid color-mix(in srgb, CanvasText 12%, transparent); font-size: 12px; }
-.support a { color: #777; text-decoration: none; }
-.support a:first-child { color: #e0161f; font-weight: 600; }
-.support a:hover { text-decoration: underline; }

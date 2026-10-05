@@ -1,8 +1,8 @@
 # Changelog
 
-## 0.2.1
+## Unreleased
 
-- Support links (Patreon, Telegram) in the popup, Eagle Companion, README, and the GitHub Sponsor button.
+- Support links (Patreon, Telegram) in Eagle Companion, README, and the GitHub Sponsor button. The Chrome extension is unchanged.
 
 ## Eagle Companion 0.2.1 / 0.2.2
 
