@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Local Social Media Archiver",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Save media from Instagram, Threads, LinkedIn, and Reddit posts to Eagle or your Downloads folder.",
   "action": {
     "default_popup": "popup.html",

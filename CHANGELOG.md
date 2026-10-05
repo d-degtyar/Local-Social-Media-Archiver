@@ -1,6 +1,10 @@
 # Changelog
 
-## Eagle Companion 0.2.1
+## 0.2.1
+
+- Support links (Patreon, Telegram) in the popup, Eagle Companion, README, and the GitHub Sponsor button.
+
+## Eagle Companion 0.2.1 / 0.2.2
 
 - One-click install from the Chrome Web Store; the Load unpacked steps are no longer shown.
 

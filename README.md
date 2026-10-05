@@ -68,6 +68,14 @@ Load `chrome-extension/` as an unpacked extension while developing. The Eagle co
 
 The Eagle companion reads its install links from [`eagle-companion/js/config.js`](eagle-companion/js/config.js). While the extension ships through GitHub Releases, the companion shows a guided **Load unpacked** setup with a direct `.zip` download. Set `chromeWebStoreUrl` once a Chrome Web Store listing exists and the companion switches to a single install button.
 
+## Support
+
+Local Social Media Archiver is free and open source. If it saves you time, you can support its development:
+
+- [Patreon](https://www.patreon.com/c/d_degtyar)
+- [I2Need on Telegram](https://t.me/I2need): blog and updates
+- [d-degtyar.top](https://d-degtyar.top/): portfolio
+
 ## Privacy policy
 
 See [PRIVACY.md](PRIVACY.md).

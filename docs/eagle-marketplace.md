@@ -23,6 +23,8 @@ Private by design: no account and no server. The extension talks to Eagle only t
 
 Install the extension free from the Chrome Web Store: https://chromewebstore.google.com/detail/local-social-media-archiv/hbjcghkjdbmphmbgkjkhncmihcbhenjj
 
+**Support the project:** https://www.patreon.com/c/d_degtyar
+
 **Support contact:** https://github.com/d-degtyar/Local-Social-Media-Archiver/issues
 
 **Screenshots to prepare (at least 3):**
