@@ -1,8 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.2.1 — Unreleased
 
-- Support links (Patreon, Telegram) in Eagle Companion, README, and the GitHub Sponsor button. The Chrome extension is unchanged.
+- Save to Downloads writes a readable `post.txt` (author, post link, caption, saved date, file list) instead of `post.json`.
+- Outside the extension: support links (Patreon, Telegram) in Eagle Companion, README, and the GitHub Sponsor button.
 
 ## Eagle Companion 0.2.1 / 0.2.2
 
