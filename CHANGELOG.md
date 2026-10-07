@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Support links (Patreon, Telegram) in Eagle Companion, README, and the GitHub Sponsor button. The Chrome extension is unchanged.
+
+## Eagle Companion 0.2.1 / 0.2.2
+
+- One-click install from the Chrome Web Store; the Load unpacked steps are no longer shown.
+
 ## 0.2.0 — Unreleased
 
 - Instagram Stories.

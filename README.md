@@ -20,11 +20,20 @@ Save visual references from the web directly to [Eagle](https://eagle.cool/) or 
 
 ### Chrome extension
 
+**[Install from the Chrome Web Store](https://chromewebstore.google.com/detail/local-social-media-archiv/hbjcghkjdbmphmbgkjkhncmihcbhenjj)**
+
+1. Click **Add to Chrome** on the store page and pin the extension to your toolbar.
+2. Open a supported post, wait for its media to load, then click the extension icon.
+3. Choose **Save to Eagle** or **Save to Downloads**.
+
+<details>
+<summary>Manual install from GitHub Releases</summary>
+
 1. Download the latest `local-social-media-archiver-chrome.zip` from [Releases](../../releases), then unpack it.
 2. Open `chrome://extensions` in Chrome and turn on **Developer mode**.
 3. Click **Load unpacked** and select the unpacked folder.
-4. Open a supported post, wait for its media to load, then click the extension icon.
-5. Choose **Save to Eagle** or **Save to Downloads**.
+
+</details>
 
 For Instagram Reels and LinkedIn video, play the video for a few seconds before saving so the browser has loaded the media stream.
 
@@ -58,6 +67,14 @@ docs/                 README images, brand icon sources, store assets
 Load `chrome-extension/` as an unpacked extension while developing. The Eagle companion can be installed from `eagle-companion/` in Eagle's developer plugin flow.
 
 The Eagle companion reads its install links from [`eagle-companion/js/config.js`](eagle-companion/js/config.js). While the extension ships through GitHub Releases, the companion shows a guided **Load unpacked** setup with a direct `.zip` download. Set `chromeWebStoreUrl` once a Chrome Web Store listing exists and the companion switches to a single install button.
+
+## Support
+
+Local Social Media Archiver is free and open source. If it saves you time, you can support its development:
+
+- [Patreon](https://www.patreon.com/c/d_degtyar)
+- [I2Need on Telegram](https://t.me/I2need): blog and updates
+- [d-degtyar.top](https://d-degtyar.top/): portfolio
 
 ## Privacy policy
 

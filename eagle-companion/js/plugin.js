@@ -9,6 +9,7 @@ if (config.chromeWebStoreUrl) {
 document.querySelector('#open-store').addEventListener('click', () => openExternal(config.chromeWebStoreUrl));
 document.querySelector('#download-zip').addEventListener('click', () => openExternal(config.extensionZipUrl));
 document.querySelector('#open-repository').addEventListener('click', () => openExternal(config.repositoryUrl));
+document.querySelector('#open-support').addEventListener('click', () => openExternal(config.supportUrl));
 document.querySelector('#test-connection').addEventListener('click', testConnection);
 document.querySelector('#copy-extensions-url').addEventListener('click', async event => {
   // Chrome refuses to open chrome:// pages from other apps, so copy it instead.

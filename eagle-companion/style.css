@@ -18,6 +18,7 @@ h2 { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: 
 code { padding: 1px 5px; border-radius: 4px; background: color-mix(in srgb, var(--text) 8%, transparent); font-size: 12.5px; }
 .note { margin: 10px 0 0; color: var(--muted); font-size: 12px; }
 button { border: 0; border-radius: 8px; padding: 9px 14px; font: inherit; font-weight: 650; cursor: pointer; }
+button.wide { width: 100%; padding: 11px 14px; }
 button.small { flex: none; padding: 6px 11px; font-size: 12.5px; }
 .primary { background: var(--accent); color: #fff; }
 .primary:hover { background: var(--accent-hover); }
@@ -29,4 +30,6 @@ button.small { flex: none; padding: 6px 11px; font-size: 12.5px; }
 .status[data-state="error"] { background: #ffebeb; color: #a43232; }
 @media (prefers-color-scheme: dark) { .status[data-state="success"] { background: #1e3a28; color: #8fd6a8; } .status[data-state="warning"] { background: #3d321a; color: #f0c86e; } .status[data-state="error"] { background: #402426; color: #f2a0a0; } }
 footer { display: flex; justify-content: center; gap: 8px; color: var(--muted); font-size: 12.5px; }
+.link.support { color: var(--accent); font-weight: 600; text-decoration: none; }
+.link.support:hover { text-decoration: underline; }
 .privacy { margin: 0; color: var(--muted); font-size: 12px; text-align: center; }

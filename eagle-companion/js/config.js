@@ -5,5 +5,6 @@
 globalThis.LSMA_CONFIG = {
   repositoryUrl: "https://github.com/d-degtyar/Local-Social-Media-Archiver",
   extensionZipUrl: "https://github.com/d-degtyar/Local-Social-Media-Archiver/releases/latest/download/local-social-media-archiver-chrome.zip",
-  chromeWebStoreUrl: ""
+  supportUrl: "https://www.patreon.com/c/d_degtyar",
+  chromeWebStoreUrl: "https://chromewebstore.google.com/detail/local-social-media-archiv/hbjcghkjdbmphmbgkjkhncmihcbhenjj"
 };
