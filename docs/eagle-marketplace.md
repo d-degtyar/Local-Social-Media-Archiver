@@ -31,3 +31,12 @@ Install the extension free from the Chrome Web Store: https://chromewebstore.goo
 1. The companion window with a green "Eagle is ready" status.
 2. The Chrome popup on an Instagram carousel.
 3. The imported items in Eagle, showing the tags, annotation, and source link.
+
+**Featured image:** `docs/store/eagle-featured-1800x1200.png` (minimum is 1560 × 1040)
+
+**Change Log (0.2.2):**
+First release on the Eagle Plugin Center.
+- Checks that Eagle is ready to receive posts from the browser.
+- One-click install of the free Chrome extension from the Chrome Web Store.
+- The extension saves images, full carousels (up to 20 items), Reels, and Stories from Instagram, plus posts from Threads, LinkedIn, and Reddit, with the caption, author tag, and original link.
+- Works locally: no account, no cloud, no analytics.
