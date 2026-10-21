@@ -39,7 +39,7 @@ async function testConnection() {
     const payload = await response.json();
     if (!response.ok || payload.status !== 'success') throw new Error(payload.message || 'Eagle API returned an error.');
     const version = payload.data?.version ? ` (Eagle ${payload.data.version})` : '';
-    setStatus(`✓ Eagle is ready to receive posts${version}`, 'success');
+    setStatus(`✓ Eagle's local API is reachable${version}`, 'success');
   } catch (error) {
     setStatus(`Could not reach Eagle locally. Keep Eagle open, then try again.\n${error.message}`, 'error');
   }
