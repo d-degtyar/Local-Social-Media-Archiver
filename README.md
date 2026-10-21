@@ -12,7 +12,7 @@ Save visual references from the web directly to [Eagle](https://eagle.cool/) or 
 - Reddit images, full galleries, and videos (Reddit serves video and audio separately, so saved videos are silent)
 - Any other site through **I feel lucky** — an opt-in, best-effort media collector
 - Eagle import with the original post URL, a clean title, tags, and caption/description
-- Local Downloads fallback with a `post.json` file
+- Local Downloads fallback with a `post.txt` note (author, link, caption)
 
 > **I feel lucky** requests permission only for the site currently open in your tab. It is intended for public, browser-accessible media and does not guarantee support for every website.
 

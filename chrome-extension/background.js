@@ -24,15 +24,14 @@ async function archiveActiveTab(destination = 'downloads', universal = false) {
   if (destination === 'eagle') return saveToEagle(post, uniqueMedia);
 
   const folder = `Local Social Archive/${safeName(post.platform)}/${safeName(post.author || 'unknown')}-${stamp()}`;
-  const metadata = JSON.stringify({ ...post, archivedAt: new Date().toISOString() }, null, 2);
-  await downloadData(`${folder}/post.json`, metadata);
+  const filenames = uniqueMedia.map((item, index) => `${String(index + 1).padStart(2, '0')}-${item.kind}.${extensionFrom(item.url, item.kind)}`);
+  await downloadText(`${folder}/post.txt`, postSummary(post, filenames));
 
   const states = await Promise.all(uniqueMedia.map(async (item, index) => {
-    const extension = extensionFrom(item.url, item.kind);
     try {
       const id = await chrome.downloads.download({
         url: item.url,
-        filename: `${folder}/${String(index + 1).padStart(2, '0')}-${item.kind}.${extension}`,
+        filename: `${folder}/${filenames[index]}`,
         conflictAction: 'uniquify',
         saveAs: false
       });
@@ -118,7 +117,32 @@ function extensionFrom(url, kind) {
   } catch { /* use a predictable fallback */ }
   return kind === 'video' ? 'mp4' : 'jpg';
 }
-async function downloadData(filename, text) {
-  const dataUrl = `data:application/json;charset=utf-8,${encodeURIComponent(text)}`;
+// A plain-text note beside the media: who posted it, where, and the caption.
+// Media URLs are left out because the sites expire them within days.
+function postSummary(post, filenames) {
+  const kind = postKind(post.url);
+  const heading = [post.author, `${PLATFORM_NAMES[post.platform] || 'Web'}${kind ? ` ${kind}` : ''}`].filter(Boolean).join(' — ');
+  const saved = new Date().toLocaleString('sv-SE').slice(0, 16);
+  return [
+    heading,
+    post.url,
+    post.text ? `\n${post.text.trim()}\n` : '',
+    `Saved: ${saved}`,
+    `Files: ${filenames.join(', ')}`
+  ].filter(Boolean).join('\n') + '\n';
+}
+const PLATFORM_NAMES = { instagram: 'Instagram', threads: 'Threads', linkedin: 'LinkedIn', reddit: 'Reddit', web: 'Web' };
+function postKind(url) {
+  try {
+    const path = new URL(url).pathname;
+    if (/^\/stories\//.test(path)) return 'Story';
+    if (/\/(?:reel|reels)\//.test(path)) return 'Reel';
+    if (/\/(?:p|post|posts|comments|feed\/update)\//.test(path)) return 'post';
+  } catch { /* fall through */ }
+  return '';
+}
+async function downloadText(filename, text) {
+  // The BOM keeps Cyrillic and emoji captions readable in older Windows Notepad.
+  const dataUrl = `data:text/plain;charset=utf-8,${encodeURIComponent('\uFEFF' + text)}`;
   await chrome.downloads.download({ url: dataUrl, filename, conflictAction: 'uniquify', saveAs: false });
 }
