@@ -7,6 +7,7 @@ for (const button of document.querySelectorAll('button')) button.addEventListene
   status.value = 'Collecting media from tab...';
   try {
     if (lucky.checked) await requestCurrentSitePermission();
+    else await requestXVideoPermission();
     const result = await chrome.runtime.sendMessage({ type: 'ARCHIVE_ACTIVE_TAB', destination, universal: lucky.checked });
     status.value = result.ok
       ? destination === 'eagle'
@@ -28,6 +29,17 @@ function downloadSummary({ mediaCount, pending, failed }) {
 }
 
 function setDisabled(disabled) { document.querySelectorAll('button').forEach(button => { button.disabled = disabled; }); }
+
+// Videos on X need X's public embed service; ask once, on the first save from X.
+// Declining still saves the post's photos.
+async function requestXVideoPermission() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  let host = '';
+  try { host = new URL(tab?.url || '').hostname; } catch { return; }
+  if (!['x.com', 'twitter.com', 'mobile.x.com', 'mobile.twitter.com'].includes(host)) return;
+  const origins = ['https://cdn.syndication.twimg.com/*'];
+  if (!await chrome.permissions.contains({ origins })) await chrome.permissions.request({ origins });
+}
 
 async function requestCurrentSitePermission() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });

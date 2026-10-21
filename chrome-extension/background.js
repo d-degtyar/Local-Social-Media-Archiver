@@ -7,14 +7,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 async function archiveActiveTab(destination = 'downloads', universal = false) {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id || !tab.url) throw new Error('Could not find active tab.');
-  if (!universal && !isSupported(tab.url)) return { ok: false, error: 'Open an Instagram, Threads, LinkedIn, or Reddit post — or enable I feel lucky.' };
+  if (!universal && !isSupported(tab.url)) return { ok: false, error: 'Open an Instagram, Threads, LinkedIn, Reddit, Pinterest, or X post — or enable I feel lucky.' };
 
   await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['collector.js'] });
   const post = await chrome.tabs.sendMessage(tab.id, { type: 'COLLECT_POST' });
+  if (post?.platform === 'x' && post.statusId) await addXEmbedMedia(post);
   if (!post?.media?.length) {
     return {
       ok: false,
-      error: post?.streamedVideo
+      error: post?.platform === 'x' && post.streamedVideo
+        ? 'X videos need access to X\'s embed service. Click Save again and choose Allow when Chrome asks.'
+        : post?.streamedVideo
         ? 'This video is streamed in chunks and cannot be saved by URL. Play it for a few seconds and retry; some videos cannot be saved.'
         : 'No media found. Open the post itself and wait for photos or videos to load.'
     };
@@ -73,7 +76,7 @@ async function saveToEagle(post, media) {
   const appInfo = await eagleRequest('/api/v2/app/info', { method: 'GET' });
   if (appInfo.status !== 'success') throw new Error('Eagle did not respond. Open Eagle with an active library.');
   const tags = ['social-media', post.platform, ...(post.author ? [safeName(post.author)] : [])];
-  const annotation = [post.text, `Original post: ${post.url}`].filter(Boolean).join('\n\n').slice(0, 15000);
+  const annotation = [post.text, post.sourceUrl && `Source: ${post.sourceUrl}`, `Original post: ${post.url}`].filter(Boolean).join('\n\n').slice(0, 15000);
   // Eagle's Web API V2 handles app/library state, while importing a remote
   // asset remains on the compatible local V1 endpoint.
   const results = await Promise.allSettled(media.map((item, index) => eagleRequest('/api/item/addFromURL', {
@@ -92,6 +95,31 @@ async function saveToEagle(post, media) {
   return { ok: true, mediaCount: media.length - failed };
 }
 
+// X streams video to the page as blob: data. Its public embed service, which
+// powers embedded posts on other websites, lists the same media with
+// downloadable MP4 variants and original-size photos. Optional permission:
+// the popup asks for it the first time the user saves from X.
+const X_EMBED_ORIGIN = 'https://cdn.syndication.twimg.com/*';
+async function addXEmbedMedia(post) {
+  try {
+    if (!await chrome.permissions.contains({ origins: [X_EMBED_ORIGIN] })) return;
+    const token = ((Number(post.statusId) / 1e15) * Math.PI).toString(36).replace(/(0+|\.)/g, '');
+    const response = await fetch(`https://cdn.syndication.twimg.com/tweet-result?id=${post.statusId}&token=${token}&lang=en`);
+    if (!response.ok) return;
+    const data = await response.json();
+    const media = (data.mediaDetails || []).flatMap(item => {
+      if (item.type === 'photo' && item.media_url_https) return [{ url: `${item.media_url_https}?name=orig`, kind: 'image' }];
+      const best = (item.video_info?.variants || [])
+        .filter(variant => variant.content_type === 'video/mp4' && variant.url)
+        .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))[0];
+      return best ? [{ url: best.url, kind: 'video' }] : [];
+    });
+    if (media.length) post.media = media.slice(0, 20);
+    if (!post.text && data.text) post.text = String(data.text).slice(0, 12000);
+    if (!post.author && data.user?.screen_name) post.author = data.user.screen_name;
+  } catch { /* keep the photos found in the page */ }
+}
+
 async function eagleRequest(path, options) {
   let response;
   try { response = await fetch(`http://localhost:41595${path}`, options); }
@@ -105,15 +133,19 @@ async function eagleRequest(path, options) {
 function isSupported(url) {
   try {
     const host = new URL(url).hostname;
-    return ['www.instagram.com', 'www.threads.com', 'www.threads.net', 'www.linkedin.com'].includes(host) || host.endsWith('reddit.com');
+    return ['www.instagram.com', 'www.threads.com', 'www.threads.net', 'www.linkedin.com', 'x.com', 'twitter.com', 'mobile.x.com', 'mobile.twitter.com'].includes(host)
+      || host.endsWith('reddit.com')
+      || /(^|\.)pinterest\.(com|[a-z]{2}|co\.[a-z]{2}|com\.[a-z]{2})$/.test(host);
   } catch { return false; }
 }
 function safeName(value) { return String(value).replace(/[^a-z0-9._-]+/gi, '_').replace(/^_+|_+$/g, '').slice(0, 80) || 'post'; }
 function stamp() { return new Date().toISOString().replace(/[:.]/g, '-'); }
 function extensionFrom(url, kind) {
   try {
-    const match = new URL(url).pathname.match(/\.([a-z0-9]{2,5})$/i);
-    if (match && ['jpg', 'jpeg', 'png', 'webp', 'gif', 'mp4', 'webm', 'mov'].includes(match[1].toLowerCase())) return match[1].toLowerCase();
+    const parsed = new URL(url);
+    // X photo URLs carry the type as ?format=png instead of a file extension.
+    const match = parsed.pathname.match(/\.([a-z0-9]{2,5})$/i) || [null, parsed.searchParams.get('format') || ''];
+    if (['jpg', 'jpeg', 'png', 'webp', 'gif', 'mp4', 'webm', 'mov'].includes(match[1].toLowerCase())) return match[1].toLowerCase();
   } catch { /* use a predictable fallback */ }
   return kind === 'video' ? 'mp4' : 'jpg';
 }
@@ -126,18 +158,21 @@ function postSummary(post, filenames) {
   return [
     heading,
     post.url,
+    post.sourceUrl ? `Source: ${post.sourceUrl}` : '',
+    post.spamSource ? 'Source link omitted: it looked like spam.' : '',
     post.text ? `\n${post.text.trim()}\n` : '',
     `Saved: ${saved}`,
     `Files: ${filenames.join(', ')}`
   ].filter(Boolean).join('\n') + '\n';
 }
-const PLATFORM_NAMES = { instagram: 'Instagram', threads: 'Threads', linkedin: 'LinkedIn', reddit: 'Reddit', web: 'Web' };
+const PLATFORM_NAMES = { instagram: 'Instagram', threads: 'Threads', linkedin: 'LinkedIn', reddit: 'Reddit', pinterest: 'Pinterest', x: 'X', web: 'Web' };
 function postKind(url) {
   try {
     const path = new URL(url).pathname;
     if (/^\/stories\//.test(path)) return 'Story';
     if (/\/(?:reel|reels)\//.test(path)) return 'Reel';
-    if (/\/(?:p|post|posts|comments|feed\/update)\//.test(path)) return 'post';
+    if (/^\/pin\//.test(path)) return 'pin';
+    if (/\/(?:p|post|posts|comments|feed\/update|status)\//.test(path)) return 'post';
   } catch { /* fall through */ }
   return '';
 }
