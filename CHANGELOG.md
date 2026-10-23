@@ -1,6 +1,8 @@
 # Changelog
 
-## 0.2.1 — Unreleased
+## 0.2.2 — Unreleased
+
+- Store summary no longer lists platform names (0.2.1 was rejected by the Chrome Web Store for keyword spam). 0.2.1 was never published; its changes ship in this version.
 
 - Pinterest: saves the open pin at original size (images, videos, carousels, idea pins). The pin is matched by its id, so related and promoted pins on the page are never saved. The pin's source link goes into the Eagle note and post.txt, unless it looks like gambling or similar spam.
 - X (Twitter): photos at original size and videos. Videos come from X's public embed service; Chrome asks for that access on the first save from X.

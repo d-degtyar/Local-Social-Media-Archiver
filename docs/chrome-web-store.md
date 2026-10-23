@@ -16,8 +16,9 @@ The zip must contain `manifest.json` at its root, not inside a folder.
 
 **Name:** Local Social Media Archiver (from `manifest.json`)
 
-**Summary (max 132 characters, from `manifest.json`):**
-Save media from Instagram, Threads, LinkedIn, Reddit, Pinterest, and X posts to Eagle or your Downloads folder.
+**Summary (max 132 characters, from `manifest.json`):** no site or brand names here. Version 0.2.1 was rejected for keyword spam ("Yellow Argon") because the summary listed six platform names in a row.
+
+Save images and videos from the post you're viewing to Eagle or your Downloads folder, with the caption, author, and link.
 
 **Description:**
 
