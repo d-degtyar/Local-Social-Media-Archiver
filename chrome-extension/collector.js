@@ -11,6 +11,8 @@
 
   async function collectPost() {
     const platform = platformName(location.hostname);
+    if (platform === 'pinterest') return collectPinterestPin();
+    if (platform === 'x') return collectXPost();
     const root = findPostRoot(platform);
     // Deliberately collect only elements rendered inside the post. A previous
     // performance-resource fallback also picked up feed previews and avatars.
@@ -68,6 +70,9 @@
   const MAX_MEDIA = 20;
 
   function platformName(host) {
+    // Exact hosts for X: a substring test for "x.com" would match netflix.com.
+    if (['x.com', 'www.x.com', 'mobile.x.com', 'twitter.com', 'www.twitter.com', 'mobile.twitter.com'].includes(host)) return 'x';
+    if (/(^|\.)pinterest\.(com|[a-z]{2}|co\.[a-z]{2}|com\.[a-z]{2})$/.test(host)) return 'pinterest';
     if (host.includes('instagram')) return 'instagram';
     if (host.includes('threads')) return 'threads';
     if (host.includes('reddit')) return 'reddit';
@@ -295,6 +300,192 @@
     const players = [...scope.querySelectorAll('video'), ...[...scope.querySelectorAll('shreddit-player')].map(player => player.shadowRoot?.querySelector('video')).filter(Boolean)];
     return players.some(video => /^blob:/i.test(video.currentSrc || video.src || ''));
   }
+  // Pinterest ---------------------------------------------------------------
+  // Only the pin whose id is in the URL is saved. The close-up page also shows
+  // related pins and promoted pins (ads) around it; matching by id keeps them
+  // out, which DOM scraping of "the biggest image" could not guarantee.
+  async function collectPinterestPin() {
+    const pinId = pinterestPinId();
+    const pin = pinId ? await fetchPinterestPin(pinId) || embeddedPinterestPin(pinId) : null;
+    let media = pin ? pinterestMedia(pin) : [];
+    if (!media.length) media = pinterestDomMedia();
+    media = dedupe(media).slice(0, MAX_MEDIA);
+    const link = String(pin?.link || pin?.tracked_link || '').trim();
+    const title = String(pin?.title || pin?.grid_title || pin?.seo_title || '').trim();
+    const spam = looksLikeSpam(link, title);
+    const description = String(pin?.description || pin?.closeup_unified_description || '').trim();
+    return {
+      platform: 'pinterest',
+      url: pinId ? `https://${location.hostname}/pin/${pinId}/` : location.href,
+      title: title || document.title,
+      headline: title,
+      author: String(pin?.native_creator?.username || pin?.pinner?.username || pin?.origin_pinner?.username || '').slice(0, 80),
+      text: [title, description].filter(Boolean).join('\n\n').slice(0, 12000),
+      // The pin's outbound link: kept as the original source unless it points
+      // at gambling or similar spam, which is common on reposted video pins.
+      sourceUrl: link && !spam ? link : '',
+      spamSource: spam,
+      media,
+      streamedVideo: !media.some(item => item.kind === 'video') && hasStreamedVideo(document)
+    };
+  }
+  function pinterestPinId() {
+    // /pin/123456/ and /pin/some-slug--123456/
+    const match = location.pathname.match(/\/pin\/(?:[^/]*--)?([A-Za-z0-9_]+)/);
+    return match ? match[1] : '';
+  }
+  async function fetchPinterestPin(pinId) {
+    // The same resource endpoint the Pinterest web app calls, with the
+    // user's session; it returns the full pin, including original sizes.
+    const sourceUrl = `/pin/${pinId}/`;
+    const data = JSON.stringify({ options: { id: pinId, field_set_key: 'detailed' }, context: {} });
+    try {
+      const response = await fetch(`/resource/PinResource/get/?source_url=${encodeURIComponent(sourceUrl)}&data=${encodeURIComponent(data)}`, {
+        credentials: 'include',
+        headers: {
+          Accept: 'application/json, text/javascript, */*; q=0.01',
+          'X-Requested-With': 'XMLHttpRequest',
+          'X-Pinterest-AppState': 'active',
+          'X-Pinterest-Source-Url': sourceUrl,
+          'X-Pinterest-PWS-Handler': 'www/pin/[id].js'
+        }
+      });
+      if (!response.ok) return null;
+      const payload = await response.json();
+      const pin = payload?.resource_response?.data;
+      return pin && String(pin.id) === pinId ? pin : null;
+    } catch { return null; }
+  }
+  function embeddedPinterestPin(pinId) {
+    const scripts = [...document.querySelectorAll('script#__PWS_DATA__, script#__PWS_INITIAL_PROPS__, script[type="application/json"]')];
+    for (const script of scripts) {
+      const text = script.textContent || '';
+      if (!text.includes(pinId) || text.length > 5_000_000) continue;
+      try {
+        const found = findNode(JSON.parse(text), node => String(node.id || node.entityId || '') === pinId
+          && Boolean(node.images || node.imageSpec_orig || node.videos || node.story_pin_data || node.carousel_data));
+        if (found) return found;
+      } catch { /* not JSON */ }
+    }
+    return null;
+  }
+  function pinterestMedia(pin) {
+    const pages = pin.story_pin_data?.pages;
+    if (Array.isArray(pages) && pages.length) {
+      // Idea pins: one or more pages, each with image or video blocks.
+      return pages.flatMap(page => (page.blocks || []).flatMap(block => {
+        const video = bestPinterestVideo(block.video?.video_list || block.video?.videoList);
+        if (video) return [{ url: video, kind: 'video' }];
+        const image = bestPinterestImage(block.image?.images || block.image);
+        return image ? [{ url: image, kind: 'image' }] : [];
+      }));
+    }
+    const slots = pin.carousel_data?.carousel_slots;
+    if (Array.isArray(slots) && slots.length) {
+      return slots.flatMap(slot => {
+        const image = bestPinterestImage(slot.images);
+        return image ? [{ url: image, kind: 'image' }] : [];
+      });
+    }
+    const video = bestPinterestVideo(pin.videos?.video_list || pin.videos?.videoList);
+    if (video) return [{ url: video, kind: 'video' }];
+    const image = bestPinterestImage(pin.images) || pin.imageSpec_orig?.url;
+    return image ? [{ url: image, kind: 'image' }] : [];
+  }
+  function bestPinterestImage(images) {
+    if (!images || typeof images !== 'object') return '';
+    const original = images.orig || images.originals;
+    if (original?.url) return original.url;
+    return Object.values(images).filter(item => item?.url)
+      .sort((a, b) => (b.width || 0) * (b.height || 0) - (a.width || 0) * (a.height || 0))[0]?.url || '';
+  }
+  function bestPinterestVideo(list) {
+    if (!list || typeof list !== 'object') return '';
+    const variants = Object.values(list).filter(item => /^https?:/i.test(item?.url || ''));
+    const mp4 = variants.filter(item => !/\.m3u8(?:\?|$)/i.test(item.url))
+      .sort((a, b) => (b.width || 0) - (a.width || 0))[0];
+    if (mp4) return mp4.url;
+    // Only an HLS playlist: Pinterest serves the same video as a 720p MP4.
+    const hls = variants[0]?.url;
+    return hls ? pinterestMp4FromHls(hls) : '';
+  }
+  function pinterestMp4FromHls(url) {
+    return /\/hls\//.test(url) ? url.replace(/\/hls\//, '/720p/').replace(/\.m3u8(\?.*)?$/, '.mp4') : '';
+  }
+  function pinterestDomMedia() {
+    // Last resort when no pin data was found: the close-up media only.
+    const scope = document.querySelector('[data-test-id="closeup-body"], [data-test-id="pin-closeup"], [data-test-id="closeup-image"], [data-test-id="pin-closeup-image"]');
+    if (!scope) return [];
+    const video = [...scope.querySelectorAll('video')].map(item => item.currentSrc || item.src || '')
+      .map(url => /\.m3u8/i.test(url) ? pinterestMp4FromHls(url) : url)
+      .find(url => /^https?:/i.test(url));
+    if (video) return [{ url: video, kind: 'video' }];
+    const image = [...scope.querySelectorAll('img')].map(largestSrc)
+      .find(url => /pinimg\.com/i.test(url));
+    return image ? [{ url: image.replace(/\/\d+x(?:\d+)?\//, '/originals/'), kind: 'image' }] : [];
+  }
+  function largestSrc(image) {
+    const candidates = (image.getAttribute('srcset') || '').split(',')
+      .map(entry => entry.trim().split(/\s+/))
+      .filter(([url]) => url)
+      .map(([url, size]) => ({ url, size: parseFloat(size) || 0 }))
+      .sort((a, b) => b.size - a.size);
+    return candidates[0]?.url || image.currentSrc || image.src || '';
+  }
+  function looksLikeSpam(link, title) {
+    let host = '';
+    try { host = link ? new URL(link).hostname.toLowerCase() : ''; } catch { /* not a URL */ }
+    const parts = host.split(/[.-]/);
+    const spamHost = parts.some(part => /^(casino\w*|\w*casino|slots?|poker|jackpot|betting|bet\d*|\d+bet|1xbet|1win|vavada|pinup|porn\w*|xxx|onlyfans|viagra|loans?|payday)$/.test(part));
+    const spamTitle = /\b(casino|free spins|jackpot|slot machine|bonus code|betting|onlyfans|xxx)\b/i.test(title || '');
+    return spamHost || spamTitle;
+  }
+
+  // X / Twitter -------------------------------------------------------------
+  // Photos come from the open post in the page, at original size. Videos are
+  // streamed to the page as blob: data; the background script fetches a
+  // downloadable MP4 for the same post id from X's public embed service.
+  function collectXPost() {
+    const statusId = (location.pathname.match(/\/status(?:es)?\/(\d+)/) || [])[1] || '';
+    const author = (location.pathname.match(/^\/([A-Za-z0-9_]{1,15})\/status/) || [])[1] || '';
+    const root = statusId
+      ? [...document.querySelectorAll('article')].find(article => article.querySelector(`a[href*="/status/${statusId}"] time`))
+      : null;
+    const photos = root ? [...root.querySelectorAll('img[src*="pbs.twimg.com/media/"]')]
+      // Skip media of a quoted post, rendered inside the main post as a link card.
+      .filter(image => !image.closest('div[role="link"]'))
+      .map(image => ({ url: xOriginalImage(image.currentSrc || image.src), kind: 'image' })) : [];
+    const media = dedupe(photos).slice(0, MAX_MEDIA);
+    return {
+      platform: 'x',
+      url: statusId && author ? `https://x.com/${author}/status/${statusId}` : location.href,
+      title: document.title,
+      author,
+      statusId,
+      text: (root?.querySelector('[data-testid="tweetText"]')?.innerText || '').trim().slice(0, 12000),
+      media,
+      streamedVideo: Boolean(root?.querySelector('video'))
+    };
+  }
+  function xOriginalImage(url) {
+    try {
+      const parsed = new URL(url);
+      parsed.searchParams.set('name', 'orig');
+      return parsed.href;
+    } catch { return url; }
+  }
+
+  function findNode(value, predicate, depth = 0) {
+    if (!value || typeof value !== 'object' || depth > 24) return null;
+    if (Array.isArray(value)) {
+      for (const item of value) { const found = findNode(item, predicate, depth + 1); if (found) return found; }
+      return null;
+    }
+    if (predicate(value)) return value;
+    for (const child of Object.values(value)) { const found = findNode(child, predicate, depth + 1); if (found) return found; }
+    return null;
+  }
+
   function authorFrom(root, platform) {
     const links = [...(root || document).querySelectorAll('a[href]')];
     const candidate = links.find(link => platform === 'linkedin'

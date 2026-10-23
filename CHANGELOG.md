@@ -2,6 +2,9 @@
 
 ## 0.2.1 — Unreleased
 
+- Pinterest: saves the open pin at original size (images, videos, carousels, idea pins). The pin is matched by its id, so related and promoted pins on the page are never saved. The pin's source link goes into the Eagle note and post.txt, unless it looks like gambling or similar spam.
+- X (Twitter): photos at original size and videos. Videos come from X's public embed service; Chrome asks for that access on the first save from X.
+- Popup footer: ♥ Patreon and I2Need links.
 - Save to Downloads writes a readable `post.txt` (author, post link, caption, saved date, file list) instead of `post.json`.
 - Outside the extension: support links (Patreon, Telegram) in Eagle Companion, README, and the GitHub Sponsor button.
 

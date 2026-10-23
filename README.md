@@ -10,6 +10,8 @@ Save visual references from the web directly to [Eagle](https://eagle.cool/) or 
 - LinkedIn images, carousels, and videos
 - Threads posts
 - Reddit images, full galleries, and videos (Reddit serves video and audio separately, so saved videos are silent)
+- Pinterest pins at original size: images, videos, carousels, and idea pins. Only the open pin is saved — never related or promoted pins — and its source link is kept unless it looks like spam
+- X (Twitter) posts: photos at original size and videos (videos use X's public embed service; Chrome asks for access the first time)
 - Any other site through **I feel lucky** — an opt-in, best-effort media collector
 - Eagle import with the original post URL, a clean title, tags, and caption/description
 - Local Downloads fallback with a `post.txt` note (author, link, caption)
