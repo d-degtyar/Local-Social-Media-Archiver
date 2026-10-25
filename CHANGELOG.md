@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.2 — Unreleased
+## 0.2.2 — 2026-10-25
 
 - Store summary no longer lists platform names (0.2.1 was rejected by the Chrome Web Store for keyword spam). 0.2.1 was never published; its changes ship in this version.
 
@@ -18,7 +18,7 @@
 
 - One-click install from the Chrome Web Store; the Load unpacked steps are no longer shown.
 
-## 0.2.0 — Unreleased
+## 0.2.0 — 2026-10-05
 
 - Instagram Stories.
 - Instagram posts opened from the feed or a profile now save without reopening them in a new tab.
