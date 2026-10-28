@@ -50,7 +50,9 @@ async function archiveActiveTab(destination = 'downloads', universal = false) {
   return { ok: true, mediaCount, pending: count('in_progress'), failed };
 }
 
-function waitForDownload(id, timeout = 60_000) {
+// Expired links fail within a second or two, so a short wait catches them
+// without holding the popup while large videos finish in Chrome's Downloads.
+function waitForDownload(id, timeout = 3_000) {
   return new Promise(resolve => {
     let done = false;
     const finish = state => {
@@ -63,7 +65,7 @@ function waitForDownload(id, timeout = 60_000) {
     const listener = delta => {
       if (delta.id === id && delta.state && delta.state.current !== 'in_progress') finish(delta.state.current);
     };
-    // Large videos may still be running; report them as in progress.
+    // Still running after the wait: report as in progress; Chrome finishes it.
     const timer = setTimeout(() => finish('in_progress'), timeout);
     chrome.downloads.onChanged.addListener(listener);
     chrome.downloads.search({ id }).then(([item]) => {
