@@ -23,6 +23,10 @@
     const domMedia = collectMedia(root);
     const linkedInEmbed = platform === 'linkedin' ? await collectLinkedInEmbed() : null;
     const redditPost = platform === 'reddit' ? await collectRedditPost() : null;
+    // Threads streams video to its player as blob: data, so the page's own
+    // post JSON (the Instagram media format) is the only source of the MP4.
+    const threadsPost = platform === 'threads' ? threadsPostData() : null;
+    const threadsMedia = threadsPost ? mediaFromInstagramNode(threadsPost) : [];
     // Do not add a network fallback when the structured Instagram data already
     // supplied a video: it is commonly a byte-range copy of the same Reel.
     const reelFallback = platform === 'instagram' && isInstagramReel() && !instagramMedia.some(item => item.kind === 'video')
@@ -42,7 +46,9 @@
         ? linkedInEmbed.media
         : redditPost?.media?.length
           ? redditPost.media
-          : domMedia;
+          : threadsMedia.length
+            ? threadsMedia
+            : domMedia;
     let merged = dedupe([...primaryMedia, ...reelFallback, ...linkedInVideo]);
     // LinkedIn renders a poster frame as an <img> next to every video. It is
     // useful in the page UI but not a separate post asset for the archive.
@@ -54,11 +60,11 @@
       platform,
       url: location.href,
       title: redditPost?.title || document.querySelector('meta[property="og:title"]')?.content || document.title,
-      author: platform === 'instagram'
-        ? instagramAuthor(instagramPost)
+      author: platform === 'instagram' || threadsPost
+        ? instagramAuthor(instagramPost || threadsPost)
         : linkedInEmbed?.author || redditPost?.author || authorFrom(root, platform),
-      text: platform === 'instagram'
-        ? instagramCaption(instagramPost)
+      text: platform === 'instagram' || threadsPost
+        ? instagramCaption(instagramPost || threadsPost)
         : (linkedInEmbed?.text || redditPost?.text || root?.innerText || document.body.innerText).trim().slice(0, 12000),
       media: merged,
       // blob: and MediaSource streams cannot be downloaded by URL. Report them
@@ -144,10 +150,14 @@
   function instagramPostData() {
     const shortcode = instagramShortcode();
     if (!shortcode) return null;
+    return postFromPageJson(shortcode);
+  }
+  function postFromPageJson(shortcode) {
     const scripts = [...document.querySelectorAll('script[type="application/json"], script:not([src])')];
     for (const script of scripts) {
       const text = script.textContent || '';
-      if (!text.includes(shortcode) || text.length > 5_000_000) continue;
+      // Threads keeps whole feeds in one script, so allow large ones.
+      if (!text.includes(shortcode) || text.length > 20_000_000) continue;
       try {
         const post = findInstagramPost(JSON.parse(text), shortcode);
         if (post) return post;
@@ -193,6 +203,11 @@
     const match = document.documentElement.innerHTML.match(/"(?:X-IG-App-ID|APP_ID)":"(\d{6,})"/);
     return match?.[1] || '936619743392459';
   }
+  function threadsPostData() {
+    // /@username/post/<code>; the code identifies the post like an Instagram shortcode.
+    const code = (location.pathname.match(/\/post\/([A-Za-z0-9_-]+)/) || [])[1];
+    return code ? postFromPageJson(code) : null;
+  }
   function instagramShortcode() {
     const parts = location.pathname.split('/').filter(Boolean);
     const marker = parts.findIndex(part => ['p', 'reel', 'reels', 'tv'].includes(part));
@@ -202,7 +217,7 @@
     return location.pathname.split('/').filter(Boolean).some(part => ['reel', 'reels'].includes(part));
   }
   function findInstagramPost(value, shortcode, depth = 0) {
-    if (!value || typeof value !== 'object' || depth > 18) return null;
+    if (!value || typeof value !== 'object' || depth > 40) return null;
     if (Array.isArray(value)) {
       for (const item of value) { const found = findInstagramPost(item, shortcode, depth + 1); if (found) return found; }
       return null;

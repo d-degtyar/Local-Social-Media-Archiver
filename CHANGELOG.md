@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.3 — Unreleased
+
+- Threads: videos save again. Threads now streams video to its player as blob: data, so the MP4 is read from the post data embedded in the page, as on Instagram. Carousels with videos save every item, and the caption and author come from the same data.
+
 ## 0.2.2 — 2026-10-25
 
 - Store summary no longer lists platform names (0.2.1 was rejected by the Chrome Web Store for keyword spam). 0.2.1 was never published; its changes ship in this version.
