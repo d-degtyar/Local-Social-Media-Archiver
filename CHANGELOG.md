@@ -2,6 +2,7 @@
 
 ## 0.2.3 — Unreleased
 
+- Save to Downloads reports back within about 3 seconds instead of waiting for every file to finish; large videos keep downloading in Chrome. Expired links are still reported as failed.
 - Threads: videos save again. Threads now streams video to its player as blob: data, so the MP4 is read from the post data embedded in the page, as on Instagram. Carousels with videos save every item, and the caption and author come from the same data.
 
 ## 0.2.2 — 2026-10-25

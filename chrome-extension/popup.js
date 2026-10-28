@@ -22,8 +22,8 @@ for (const button of document.querySelectorAll('button')) button.addEventListene
 });
 
 function downloadSummary({ mediaCount, pending, failed }) {
-  const lines = [`Downloaded: ${mediaCount} media + metadata.`];
-  if (pending) lines.push(`${pending} still downloading — check Chrome's Downloads.`);
+  const lines = [pending ? `Saving ${mediaCount + pending} media to Downloads.` : `Downloaded: ${mediaCount} media + post.txt.`];
+  if (pending) lines.push(`${pending} still downloading in Chrome — no need to wait.`);
   if (failed) lines.push(`${failed} failed. Links may have expired: reload the page and retry.`);
   return lines.join('\n');
 }
