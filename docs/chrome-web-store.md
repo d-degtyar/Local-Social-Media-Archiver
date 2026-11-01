@@ -36,6 +36,7 @@ Save images and videos from the post you're viewing to Eagle or your Downloads f
 > • Reddit images, full galleries, and videos
 > • Pinterest pins at original size, including videos and idea pins: only the open pin, never related or promoted pins
 > • X (Twitter) photos at original size and videos
+> • YouTube: saves a video's cover image with its title, channel, and link as a reference. The video itself is not downloaded.
 > • "I feel lucky": try any other site, with permission requested only for that site
 >
 > Private by design. No account, no server, no analytics. The extension works with your existing browser session and talks to Eagle only through its local API on your computer.

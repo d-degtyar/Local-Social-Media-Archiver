@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.4 — Unreleased
+
+- YouTube videos and Shorts save as references: the cover image at the highest available size (maxres, then SD, then HQ), with the title, channel, description, and link. The video itself is not downloaded, in line with YouTube's terms and Chrome Web Store policy.
+- Eagle items from YouTube and Pinterest are named after the video or pin title.
+
 ## 0.2.3 — Unreleased
 
 - Save to Downloads reports back within about 3 seconds instead of waiting for every file to finish; large videos keep downloading in Chrome. Expired links are still reported as failed.

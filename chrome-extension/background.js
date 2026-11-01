@@ -7,7 +7,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 async function archiveActiveTab(destination = 'downloads', universal = false) {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id || !tab.url) throw new Error('Could not find active tab.');
-  if (!universal && !isSupported(tab.url)) return { ok: false, error: 'Open an Instagram, Threads, LinkedIn, Reddit, Pinterest, or X post — or enable I feel lucky.' };
+  if (!universal && !isSupported(tab.url)) return { ok: false, error: 'Open a post on a supported site — or enable I feel lucky.' };
 
   await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['collector.js'] });
   const post = await chrome.tabs.sendMessage(tab.id, { type: 'COLLECT_POST' });
@@ -15,7 +15,9 @@ async function archiveActiveTab(destination = 'downloads', universal = false) {
   if (!post?.media?.length) {
     return {
       ok: false,
-      error: post?.platform === 'x' && post.streamedVideo
+      error: post?.platform === 'youtube'
+        ? 'Open a YouTube video or Short to save its cover as a reference.'
+        : post?.platform === 'x' && post.streamedVideo
         ? 'X videos need access to X\'s embed service. Click Save again and choose Allow when Chrome asks.'
         : post?.streamedVideo
         ? 'This video is streamed in chunks and cannot be saved by URL. Play it for a few seconds and retry; some videos cannot be saved.'
@@ -86,7 +88,10 @@ async function saveToEagle(post, media) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       url: item.url,
-      name: `${post.platform}-${safeName(post.author || 'post')}-${String(index + 1).padStart(2, '0')}`,
+      // A real title (YouTube video, Pinterest pin) is easier to find in Eagle.
+      name: post.headline
+        ? `${post.headline.slice(0, 120)}${media.length > 1 ? ` ${index + 1}` : ''}`
+        : `${post.platform}-${safeName(post.author || 'post')}-${String(index + 1).padStart(2, '0')}`,
       website: post.url,
       tags,
       annotation
@@ -135,7 +140,7 @@ async function eagleRequest(path, options) {
 function isSupported(url) {
   try {
     const host = new URL(url).hostname;
-    return ['www.instagram.com', 'www.threads.com', 'www.threads.net', 'www.linkedin.com', 'x.com', 'twitter.com', 'mobile.x.com', 'mobile.twitter.com'].includes(host)
+    return ['www.instagram.com', 'www.threads.com', 'www.threads.net', 'www.linkedin.com', 'x.com', 'twitter.com', 'mobile.x.com', 'mobile.twitter.com', 'www.youtube.com', 'youtube.com', 'm.youtube.com'].includes(host)
       || host.endsWith('reddit.com')
       || /(^|\.)pinterest\.(com|[a-z]{2}|co\.[a-z]{2}|com\.[a-z]{2})$/.test(host);
   } catch { return false; }
@@ -167,13 +172,15 @@ function postSummary(post, filenames) {
     `Files: ${filenames.join(', ')}`
   ].filter(Boolean).join('\n') + '\n';
 }
-const PLATFORM_NAMES = { instagram: 'Instagram', threads: 'Threads', linkedin: 'LinkedIn', reddit: 'Reddit', pinterest: 'Pinterest', x: 'X', web: 'Web' };
+const PLATFORM_NAMES = { instagram: 'Instagram', threads: 'Threads', linkedin: 'LinkedIn', reddit: 'Reddit', pinterest: 'Pinterest', x: 'X', youtube: 'YouTube', web: 'Web' };
 function postKind(url) {
   try {
     const path = new URL(url).pathname;
     if (/^\/stories\//.test(path)) return 'Story';
     if (/\/(?:reel|reels)\//.test(path)) return 'Reel';
     if (/^\/pin\//.test(path)) return 'pin';
+    if (/^\/shorts\//.test(path)) return 'Short';
+    if (/^\/(?:watch|live)\b/.test(path)) return 'video';
     if (/\/(?:p|post|posts|comments|feed\/update|status)\//.test(path)) return 'post';
   } catch { /* fall through */ }
   return '';

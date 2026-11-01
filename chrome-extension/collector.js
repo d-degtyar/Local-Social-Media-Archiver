@@ -13,6 +13,7 @@
     const platform = platformName(location.hostname);
     if (platform === 'pinterest') return collectPinterestPin();
     if (platform === 'x') return collectXPost();
+    if (platform === 'youtube') return collectYouTubeVideo();
     const root = findPostRoot(platform);
     // Deliberately collect only elements rendered inside the post. A previous
     // performance-resource fallback also picked up feed previews and avatars.
@@ -78,6 +79,7 @@
   function platformName(host) {
     // Exact hosts for X: a substring test for "x.com" would match netflix.com.
     if (['x.com', 'www.x.com', 'mobile.x.com', 'twitter.com', 'www.twitter.com', 'mobile.twitter.com'].includes(host)) return 'x';
+    if (['www.youtube.com', 'youtube.com', 'm.youtube.com'].includes(host)) return 'youtube';
     if (/(^|\.)pinterest\.(com|[a-z]{2}|co\.[a-z]{2}|com\.[a-z]{2})$/.test(host)) return 'pinterest';
     if (host.includes('instagram')) return 'instagram';
     if (host.includes('threads')) return 'threads';
@@ -454,6 +456,92 @@
     const spamHost = parts.some(part => /^(casino\w*|\w*casino|slots?|poker|jackpot|betting|bet\d*|\d+bet|1xbet|1win|vavada|pinup|porn\w*|xxx|onlyfans|viagra|loans?|payday)$/.test(part));
     const spamTitle = /\b(casino|free spins|jackpot|slot machine|bonus code|betting|onlyfans|xxx)\b/i.test(title || '');
     return spamHost || spamTitle;
+  }
+
+  // YouTube -----------------------------------------------------------------
+  // A reference card only: the video's cover image, title, channel, and link.
+  // The video itself is never downloaded (YouTube's terms and Chrome Web
+  // Store policy do not allow it).
+  async function collectYouTubeVideo() {
+    const videoId = youTubeVideoId();
+    const isShort = location.pathname.startsWith('/shorts/');
+    const details = videoId ? youTubeDetails(videoId) : null;
+    const cover = videoId ? await youTubeCover(videoId) : '';
+    const title = details?.title || '';
+    const description = details?.description || '';
+    return {
+      platform: 'youtube',
+      url: videoId ? (isShort ? `https://www.youtube.com/shorts/${videoId}` : `https://www.youtube.com/watch?v=${videoId}`) : location.href,
+      title: title || document.title,
+      headline: title,
+      author: (details?.channel || '').slice(0, 80),
+      text: [title, description].filter(Boolean).join('\n\n').slice(0, 12000),
+      media: cover ? [{ url: cover, kind: 'image' }] : [],
+      streamedVideo: false
+    };
+  }
+  function youTubeVideoId() {
+    const fromQuery = new URLSearchParams(location.search).get('v');
+    const fromPath = (location.pathname.match(/^\/(?:shorts|live|embed)\/([A-Za-z0-9_-]{11})/) || [])[1];
+    const id = fromQuery || fromPath || '';
+    return /^[A-Za-z0-9_-]{11}$/.test(id) ? id : '';
+  }
+  function youTubeDetails(videoId) {
+    // ytInitialPlayerResponse describes the first video loaded in the tab;
+    // YouTube swaps videos without reloading, so use it only if the id matches.
+    const scripts = [...document.querySelectorAll('script:not([src])')];
+    for (const script of scripts) {
+      const text = script.textContent || '';
+      if (!text.includes('ytInitialPlayerResponse') || !text.includes(videoId)) continue;
+      const start = text.indexOf('{', text.indexOf('ytInitialPlayerResponse'));
+      const json = start >= 0 ? balancedJson(text, start) : '';
+      try {
+        const details = JSON.parse(json)?.videoDetails;
+        if (details?.videoId === videoId) return { title: details.title, channel: details.author, description: details.shortDescription };
+      } catch { /* not the player response */ }
+    }
+    const watch = document.querySelector('ytd-watch-metadata');
+    const activeShort = document.querySelector('ytd-reel-video-renderer[is-active]');
+    const title = watch?.querySelector('h1')?.innerText
+      || activeShort?.querySelector('h2, .title')?.innerText
+      || document.title.replace(/\s*-\s*YouTube$/, '');
+    const channel = watch?.querySelector('#channel-name a, ytd-channel-name a')?.innerText
+      || activeShort?.querySelector('a[href^="/@"]')?.innerText?.replace(/^@/, '')
+      || '';
+    const description = watch?.querySelector('#description-inline-expander, #description')?.innerText || '';
+    return { title: title.trim(), channel: channel.trim(), description: description.trim() };
+  }
+  function balancedJson(text, start) {
+    let depth = 0, inString = false, escaped = false;
+    for (let index = start; index < text.length; index++) {
+      const character = text[index];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (character === '\\') escaped = true;
+        else if (character === '"') inString = false;
+      } else if (character === '"') inString = true;
+      else if (character === '{') depth++;
+      else if (character === '}' && --depth === 0) return text.slice(start, index + 1);
+    }
+    return '';
+  }
+  async function youTubeCover(videoId) {
+    // Largest first. maxresdefault exists only for HD uploads; a missing size
+    // answers 404, so try each in turn and keep the first that loads.
+    for (const size of ['maxresdefault', 'sddefault', 'hqdefault']) {
+      const url = `https://i.ytimg.com/vi/${videoId}/${size}.jpg`;
+      if (await imageLoads(url)) return url;
+    }
+    return '';
+  }
+  function imageLoads(url) {
+    return new Promise(resolve => {
+      const image = new Image();
+      const timer = setTimeout(() => resolve(false), 4000);
+      image.onload = () => { clearTimeout(timer); resolve(image.naturalWidth > 120); };
+      image.onerror = () => { clearTimeout(timer); resolve(false); };
+      image.src = url;
+    });
   }
 
   // X / Twitter -------------------------------------------------------------
