@@ -37,15 +37,51 @@ const saveState = () => writeJson(path.join(exportDir, STATE_FILE), state);
 
 // --- loading ---------------------------------------------------------------
 async function chooseExport() {
-  let folder = '';
-  if (globalThis.eagle?.dialog?.showOpenDialog) {
-    const result = await eagle.dialog.showOpenDialog({ properties: ['openDirectory'], title: 'Select the Telegram export folder' });
-    if (result?.canceled) return;
-    folder = result?.filePaths?.[0] || '';
-  } else {
-    folder = prompt('Path to the Telegram export folder (with result.json):', settings.lastExport || '') || '';
+  try {
+    let folder = '';
+    if (globalThis.eagle?.dialog?.showOpenDialog) {
+      const result = await eagle.dialog.showOpenDialog({ properties: ['openDirectory'], title: 'Select the Telegram export folder' });
+      if (result?.canceled) return;
+      folder = pickedPath(result);
+    } else {
+      folder = prompt('Path to the Telegram export folder (with result.json):', settings.lastExport || '') || '';
+    }
+    if (!folder) return;
+    const found = findExportFolder(folder);
+    if (!found) { toast(`No result.json in ${folder} or its subfolders. Export the channel with format "Machine-readable JSON".`, true); return; }
+    loadExport(found);
+  } catch (error) {
+    toast(`Could not open the export: ${error.message || error}`, true);
   }
-  if (folder) loadExport(folder);
+}
+
+// Eagle versions answer the dialog as { filePaths: [...] }, as an array, or as
+// a single path; accept all of them.
+function pickedPath(result) {
+  if (typeof result === 'string') return result;
+  if (Array.isArray(result)) return result[0] || '';
+  return result?.filePaths?.[0] || result?.filePath || result?.path || '';
+}
+
+// The chosen folder, or the export inside it (Telegram Desktop puts exports in
+// ChatExport_<date> folders); with several, the newest.
+function findExportFolder(folder) {
+  if (/result\.json$/i.test(folder) && fs.existsSync(folder)) return path.dirname(folder);
+  if (fs.existsSync(path.join(folder, 'result.json'))) return folder;
+  const candidates = [];
+  const scan = (dir, depth) => {
+    let entries = [];
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const child = path.join(dir, entry.name);
+      if (fs.existsSync(path.join(child, 'result.json'))) candidates.push(child);
+      else if (depth < 2) scan(child, depth + 1);
+    }
+  };
+  scan(folder, 1);
+  const mtime = dir => { try { return fs.statSync(path.join(dir, 'result.json')).mtimeMs; } catch { return 0; } };
+  return candidates.sort((a, b) => mtime(b) - mtime(a))[0] || '';
 }
 
 function loadExport(folder) {
