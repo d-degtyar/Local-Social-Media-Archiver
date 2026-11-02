@@ -1,3 +1,42 @@
+// When another extension listens to onDeterminingFilename (download
+// managers, some "save to" add-ons), Chrome can drop the filename given to
+// downloads.download, and files land in Downloads as "download (3).jpg".
+// Listening here as well lets this extension restate the name and folder for
+// its own downloads. Every other download gets an empty suggestion: no change.
+const plannedNames = new Map();
+chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
+  const filename = plannedNames.get(item.url) || plannedNames.get(item.finalUrl);
+  if (!filename) { suggest(); return; }
+  plannedNames.delete(item.url);
+  plannedNames.delete(item.finalUrl);
+  suggest({ filename, conflictAction: 'uniquify' });
+});
+const ARCHIVE_FOLDER = 'Local Social Archive';
+async function startDownload(options) {
+  try { return await downloadNamed(options, options.filename); }
+  catch (error) {
+    // A file system that cannot store a character in the title (rare, but
+    // Chrome reports it as "Invalid filename"): keep the file, Latin-only name.
+    if (!/invalid filename/i.test(error?.message || '')) throw error;
+    return downloadNamed(options, asciiPath(options.filename));
+  }
+}
+function downloadNamed(options, filename) {
+  plannedNames.set(options.url, filename);
+  // Forget the name if the download never reaches filename selection.
+  setTimeout(() => plannedNames.delete(options.url), 60_000);
+  return chrome.downloads.download({ ...options, filename });
+}
+function asciiPath(path) {
+  const latin = (text, fallback) => text.replace(/[^\x20-\x7e]+/g, '').replace(/[\\/:*?"<>|]+/g, ' ')
+    .replace(/\s+/g, ' ').replace(/^[\s.-]+|[\s.-]+$/g, '') || fallback;
+  return path.split('/').map((part, index, parts) => {
+    if (index < parts.length - 1) return latin(part, 'unknown');
+    const dot = part.lastIndexOf('.');
+    return dot > 0 ? `${latin(part.slice(0, dot), 'media')}${part.slice(dot)}` : latin(part, 'media');
+  }).join('/');
+}
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type !== 'ARCHIVE_ACTIVE_TAB') return;
   archiveActiveTab(message.destination, message.universal === true).then(sendResponse).catch(error => sendResponse({ ok: false, error: error.message }));
@@ -7,7 +46,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 async function archiveActiveTab(destination = 'downloads', universal = false) {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id || !tab.url) throw new Error('Could not find active tab.');
-  if (!universal && !isSupported(tab.url)) return { ok: false, error: 'Open an Instagram, Threads, LinkedIn, Reddit, Pinterest, or X post — or enable I feel lucky.' };
+  if (!universal && !isSupported(tab.url)) return { ok: false, error: 'Open a post on a supported site — or enable I feel lucky.' };
 
   await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['collector.js'] });
   const post = await chrome.tabs.sendMessage(tab.id, { type: 'COLLECT_POST' });
@@ -15,7 +54,9 @@ async function archiveActiveTab(destination = 'downloads', universal = false) {
   if (!post?.media?.length) {
     return {
       ok: false,
-      error: post?.platform === 'x' && post.streamedVideo
+      error: post?.platform === 'youtube'
+        ? 'Open a YouTube video or Short to save its cover as a reference.'
+        : post?.platform === 'x' && post.streamedVideo
         ? 'X videos need access to X\'s embed service. Click Save again and choose Allow when Chrome asks.'
         : post?.streamedVideo
         ? 'This video is streamed in chunks and cannot be saved by URL. Play it for a few seconds and retry; some videos cannot be saved.'
@@ -26,18 +67,28 @@ async function archiveActiveTab(destination = 'downloads', universal = false) {
   const uniqueMedia = [...new Map(post.media.map(item => [item.url, item])).values()];
   if (destination === 'eagle') return saveToEagle(post, uniqueMedia);
 
-  const folder = `Local Social Archive/${safeName(post.platform)}/${safeName(post.author || 'unknown')}-${stamp()}`;
-  const filenames = uniqueMedia.map((item, index) => `${String(index + 1).padStart(2, '0')}-${item.kind}.${extensionFrom(item.url, item.kind)}`);
-  await downloadText(`${folder}/post.txt`, postSummary(post, filenames));
+  // One flat folder, no subfolder per post. Every file of a post shares a base
+  // name, so they sort together and never overwrite another post's files:
+  //   "Motion reel 2026.jpg" + "Motion reel 2026.txt"            (titled posts)
+  //   "Instagram studio 2026-11-02 14-20 01.jpg" … + ".txt"     (all others)
+  const base = (post.headline && safeTitle(post.headline))
+    || safeTitle(`${PLATFORM_NAMES[post.platform] || 'Web'} ${post.author || ''} ${localStamp()}`);
+  const filenames = uniqueMedia.map((item, index) => {
+    const number = uniqueMedia.length > 1 ? ` ${String(index + 1).padStart(2, '0')}` : '';
+    return `${base}${number}.${extensionFrom(item.url, item.kind)}`;
+  });
+  const folder = ARCHIVE_FOLDER;
+  const ids = [await downloadText(`${folder}/${base}.txt`, postSummary(post, filenames))];
 
   const states = await Promise.all(uniqueMedia.map(async (item, index) => {
     try {
-      const id = await chrome.downloads.download({
+      const id = await startDownload({
         url: item.url,
         filename: `${folder}/${filenames[index]}`,
         conflictAction: 'uniquify',
         saveAs: false
       });
+      ids.push(id);
       // download() resolves once a download starts, not when it succeeds.
       // Expired CDN links fail afterwards with a 403, so wait for the outcome.
       return await waitForDownload(id);
@@ -47,7 +98,18 @@ async function archiveActiveTab(destination = 'downloads', universal = false) {
   const mediaCount = count('complete');
   const failed = count('interrupted');
   if (failed === uniqueMedia.length) return { ok: false, error: 'Downloads failed. Media links may have expired: reload the page and retry.' };
-  return { ok: true, mediaCount, pending: count('in_progress'), failed };
+  return { ok: true, mediaCount, pending: count('in_progress'), failed, renamed: await renamedByAnotherExtension(ids) };
+}
+
+// Chrome lets the most recently installed extension that listens to
+// onDeterminingFilename decide download names. If that is another extension,
+// our files land in the Downloads root as "download.txt" or "maxresdefault.jpg";
+// detect it so the popup can say why and what fixes it.
+async function renamedByAnotherExtension(ids) {
+  try {
+    const items = (await Promise.all(ids.filter(Boolean).map(id => chrome.downloads.search({ id })))).flat();
+    return items.some(item => item.filename && !item.filename.includes(ARCHIVE_FOLDER));
+  } catch { return false; }
 }
 
 // Expired links fail within a second or two, so a short wait catches them
@@ -86,7 +148,10 @@ async function saveToEagle(post, media) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       url: item.url,
-      name: `${post.platform}-${safeName(post.author || 'post')}-${String(index + 1).padStart(2, '0')}`,
+      // A real title (YouTube video, Pinterest pin) is easier to find in Eagle.
+      name: post.headline
+        ? `${post.headline.slice(0, 120)}${media.length > 1 ? ` ${index + 1}` : ''}`
+        : `${post.platform}-${safeName(post.author || 'post')}-${String(index + 1).padStart(2, '0')}`,
       website: post.url,
       tags,
       annotation
@@ -135,13 +200,26 @@ async function eagleRequest(path, options) {
 function isSupported(url) {
   try {
     const host = new URL(url).hostname;
-    return ['www.instagram.com', 'www.threads.com', 'www.threads.net', 'www.linkedin.com', 'x.com', 'twitter.com', 'mobile.x.com', 'mobile.twitter.com'].includes(host)
+    return ['www.instagram.com', 'www.threads.com', 'www.threads.net', 'www.linkedin.com', 'x.com', 'twitter.com', 'mobile.x.com', 'mobile.twitter.com', 'www.youtube.com', 'youtube.com', 'm.youtube.com'].includes(host)
       || host.endsWith('reddit.com')
       || /(^|\.)pinterest\.(com|[a-z]{2}|co\.[a-z]{2}|com\.[a-z]{2})$/.test(host);
   } catch { return false; }
 }
+// Keeps letters in any script, digits, spaces, and punctuation that every
+// file system accepts; drops characters Windows or macOS reject in names.
+function safeTitle(value) {
+  const name = String(value)
+    .replace(/[\\/:*?"<>|\u0000-\u001f\u007f]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 100)
+    .replace(/^[.\s]+|[.\s]+$/g, '');
+  // CON, PRN, NUL, COM1… are reserved device names on Windows.
+  return /^(con|prn|aux|nul|com\d|lpt\d)$/i.test(name) ? `_${name}` : name;
+}
 function safeName(value) { return String(value).replace(/[^a-z0-9._-]+/gi, '_').replace(/^_+|_+$/g, '').slice(0, 80) || 'post'; }
-function stamp() { return new Date().toISOString().replace(/[:.]/g, '-'); }
+// Local date and time to the minute, e.g. 2026-11-02 14-20 (no colons in file names).
+function localStamp() { return new Date().toLocaleString('sv-SE').slice(0, 16).replace(':', '-'); }
 function extensionFrom(url, kind) {
   try {
     const parsed = new URL(url);
@@ -167,13 +245,15 @@ function postSummary(post, filenames) {
     `Files: ${filenames.join(', ')}`
   ].filter(Boolean).join('\n') + '\n';
 }
-const PLATFORM_NAMES = { instagram: 'Instagram', threads: 'Threads', linkedin: 'LinkedIn', reddit: 'Reddit', pinterest: 'Pinterest', x: 'X', web: 'Web' };
+const PLATFORM_NAMES = { instagram: 'Instagram', threads: 'Threads', linkedin: 'LinkedIn', reddit: 'Reddit', pinterest: 'Pinterest', x: 'X', youtube: 'YouTube', web: 'Web' };
 function postKind(url) {
   try {
     const path = new URL(url).pathname;
     if (/^\/stories\//.test(path)) return 'Story';
     if (/\/(?:reel|reels)\//.test(path)) return 'Reel';
     if (/^\/pin\//.test(path)) return 'pin';
+    if (/^\/shorts\//.test(path)) return 'Short';
+    if (/^\/(?:watch|live)\b/.test(path)) return 'video';
     if (/\/(?:p|post|posts|comments|feed\/update|status)\//.test(path)) return 'post';
   } catch { /* fall through */ }
   return '';
@@ -181,5 +261,5 @@ function postKind(url) {
 async function downloadText(filename, text) {
   // The BOM keeps Cyrillic and emoji captions readable in older Windows Notepad.
   const dataUrl = `data:text/plain;charset=utf-8,${encodeURIComponent('\uFEFF' + text)}`;
-  await chrome.downloads.download({ url: dataUrl, filename, conflictAction: 'uniquify', saveAs: false });
+  return startDownload({ url: dataUrl, filename, conflictAction: 'uniquify', saveAs: false });
 }

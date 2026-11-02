@@ -11,7 +11,7 @@ When you click **Save to Eagle** or **Save to Downloads**, the extension reads t
 ## Where that data goes
 
 - **Save to Eagle** sends the media URLs and post details to the Eagle app on your own computer through its local API (`http://localhost:41595`). Nothing leaves your computer except the media downloads themselves.
-- **Save to Downloads** saves the media files and a `post.txt` note (author, post link, caption) to your Downloads folder.
+- **Save to Downloads** saves the media files and a `.txt` note (author, post link, caption) to the Local Social Archive folder in your Downloads.
 - On X, videos are fetched through X's public embed service (`cdn.syndication.twimg.com`), the same service that shows X posts embedded on other websites. Only the post's id is sent. Chrome asks for this access the first time you save from X, and photos still save if you decline.
 - Media files are downloaded directly from the website that serves them (for example Instagram's or LinkedIn's media servers), using your existing browser session, as when you view them.
 

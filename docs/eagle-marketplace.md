@@ -27,7 +27,7 @@ What the Chrome extension saves:
 - Threads: post images and videos
 - Reddit: images, galleries, and videos (Reddit serves video and audio separately, so saved Reddit videos have no sound)
 
-Each item imported into Eagle keeps the original post link, the platform and author as tags, and the caption as a note. The extension also offers "Save to Downloads", which saves the files and a post.txt note to your Downloads folder.
+Each item imported into Eagle keeps the original post link, the platform and author as tags, and the caption as a note. The extension also offers "Save to Downloads", which saves the files and a .txt note to your Downloads folder.
 
 "I feel lucky" is an experimental option for other websites. It asks permission for one site at a time and may not find media on every page.
 

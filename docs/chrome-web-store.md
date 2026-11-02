@@ -36,6 +36,7 @@ Save images and videos from the post you're viewing to Eagle or your Downloads f
 > • Reddit images, full galleries, and videos
 > • Pinterest pins at original size, including videos and idea pins: only the open pin, never related or promoted pins
 > • X (Twitter) photos at original size and videos
+> • YouTube: saves a video's cover image with its title, channel, and link as a reference. The video itself is not downloaded.
 > • "I feel lucky": try any other site, with permission requested only for that site
 >
 > Private by design. No account, no server, no analytics. The extension works with your existing browser session and talks to Eagle only through its local API on your computer.
@@ -71,7 +72,7 @@ Save the media from the post in the current tab (images, carousels, videos, and 
 |---|---|
 | `activeTab` | Reads the post in the tab where the user clicked the extension, only after that click. |
 | `scripting` | Injects the media collector script into that tab to find the post's images, videos, and caption. |
-| `downloads` | Saves the media files and a `post.txt` note with the author, post link, and caption to the user's Downloads folder when they choose Save to Downloads. |
+| `downloads` | Saves the media files and a .txt note with the author, post link, and caption to the user's Downloads folder when they choose Save to Downloads. |
 | Host permissions (instagram.com, threads.com/net, linkedin.com, reddit.com) | Reads post pages on the supported sites so the collector can find every carousel item and the post's video source. |
 | Host permissions (cdninstagram.com, fbcdn.net, licdn.com, redd.it) | Downloads the media files from the sites' own media servers with the user's existing session. |
 | Host permission (localhost:41595) | Sends the saved items to the Eagle desktop app's local API on the user's own computer. Nothing is sent over the internet. |
