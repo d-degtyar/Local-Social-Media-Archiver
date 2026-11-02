@@ -36,8 +36,15 @@
       <article id="card" class="card" hidden>
         <div class="meta"><span id="post-date"></span><span id="post-position"></span><span id="post-forwarded"></span></div>
         <div id="post-media" class="media"></div>
-        <div id="post-text" class="text"></div>
+        <input id="edit-title" class="title-input" placeholder="Title" aria-label="Title" autocomplete="off">
+        <textarea id="edit-text" class="text-input" aria-label="Text" placeholder="No text"></textarea>
+        <div class="field-row">
+          <div id="edit-tags" class="tags" aria-label="Tags"></div>
+          <input id="add-tag" class="tag-input" placeholder="+ tag" aria-label="Add a tag" autocomplete="off">
+        </div>
         <div id="post-links" class="links"></div>
+        <div class="edit-tools"><span class="hint">Edits are saved as you type and used when you send. Esc leaves a field so the keys work again.</span>
+          <button id="edit-reset" class="link-button" hidden>Reset edits</button></div>
         <div id="post-status" class="status"></div>
       </article>
 
@@ -58,6 +65,9 @@
         <label>Karakeep address <input id="kk-url" placeholder="http://192.168.1.10:3000" autocomplete="off"></label>
         <label>Karakeep API key <input id="kk-key" type="password" placeholder="From Karakeep → Settings → API Keys" autocomplete="off"></label>
         <label class="check"><input id="kk-insecure" type="checkbox"> Allow a self-signed HTTPS certificate (NAS)</label>
+        <label>Theme
+          <select id="theme-select"><option value="auto">Match Eagle</option><option value="light">Light</option><option value="dark">Dark</option></select>
+        </label>
         <div class="row">
           <button type="button" id="test-karakeep" class="secondary">Test Karakeep</button>
           <button type="button" id="test-eagle" class="secondary">Test Eagle</button>

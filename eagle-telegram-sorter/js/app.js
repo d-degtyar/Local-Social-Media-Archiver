@@ -91,6 +91,15 @@ function visiblePosts() {
   return posts.filter(post => !entryOf(post).trash);
 }
 const currentPost = () => posts.find(post => post.key === currentKey) || null;
+const editedPost = post => core.edited(chat, post, entryOf(post).edits);
+function setEdits(post, changes, { save = true } = {}) {
+  const edits = { ...(entryOf(post).edits || {}), ...changes };
+  state.posts[stateKey(post)] = { ...entryOf(post), edits };
+  if (save) saveSoon();
+}
+// Typing saves at most a few times a second.
+let saveTimer;
+function saveSoon() { clearTimeout(saveTimer); saveTimer = setTimeout(saveState, 400); }
 
 // Moves within the current view. The post on screen stays until the user
 // moves on, so one post can go to Eagle and to Karakeep.
@@ -120,7 +129,7 @@ async function eagleFolderId() {
 }
 
 async function sendToEagle(post) {
-  const items = core.eagleItems(chat, post, relative => path.join(exportDir, relative));
+  const items = core.eagleItems(chat, editedPost(post), relative => path.join(exportDir, relative));
   if (!items.length) { toast(post.missing ? 'This post\'s files were not included in the export.' : 'No photos, videos or files in this post.', true); return; }
   if (entryOf(post).eagle) { toast('Already in Eagle.'); return; }
   const folderId = await eagleFolderId();
@@ -136,7 +145,7 @@ async function sendToEagle(post) {
 }
 
 async function sendToKarakeep(post) {
-  const bookmarks = core.karakeepBookmarks(chat, post);
+  const bookmarks = core.karakeepBookmarks(chat, editedPost(post));
   if (!bookmarks.length) { toast('Nothing for Karakeep: no links and no text.', true); return; }
   if (entryOf(post).karakeep) { toast('Already in Karakeep.'); return; }
   const client = net.karakeep(settings);
@@ -200,18 +209,42 @@ function renderPost(post, list) {
     if (item.kind === 'video') return `<video src="${url}" controls preload="metadata" muted></video>`;
     return `<div class="file" data-file="${escapeHtml(file)}">📄 ${escapeHtml(item.name || path.basename(item.path))}</div>`;
   }).join('') + (post.missing ? `<div class="missing">${post.missing} file${post.missing > 1 ? 's' : ''} not included in the export</div>` : '');
-  $('#post-text').innerHTML = linkify(post.text);
-  $('#post-links').innerHTML = post.links.map(link => `<a href="${escapeHtml(link)}" data-external>${escapeHtml(link)}</a>`).join('');
+  const shown = editedPost(post);
   const entry = entryOf(post);
+  // Do not overwrite a field the user is typing in.
+  if (document.activeElement !== $('#edit-title')) $('#edit-title').value = shown.title;
+  if (document.activeElement !== $('#edit-text')) $('#edit-text').value = shown.text;
+  fitText();
+  renderTags(shown);
+  renderLinks(post, shown);
+  $('#edit-reset').hidden = !entry.edits || !Object.keys(entry.edits).length;
   $('#post-status').innerHTML = [
     entry.eagle && `<span>✓ Eagle · ${entry.eagle}</span>`,
     entry.karakeep && `<span>✓ Karakeep · ${entry.karakeep}</span>`,
     entry.trash && '<span class="trashed">In Trash</span>'
   ].filter(Boolean).join('');
   $('#act-eagle').disabled = !post.media.length || Boolean(entry.eagle);
-  $('#act-karakeep').disabled = (!post.links.length && !post.text) || Boolean(entry.karakeep);
+  $('#act-karakeep').disabled = (!shown.links.length && !shown.text) || Boolean(entry.karakeep);
   $('#act-trash').innerHTML = entry.trash ? 'Restore <kbd>Del</kbd>' : 'Trash <kbd>Del</kbd>';
   for (const id of ['#act-trash', '#act-next', '#act-prev']) $(id).disabled = false;
+}
+
+function renderTags(shown) {
+  $('#edit-tags').innerHTML = shown.tags.map(tag =>
+    `<span class="tag">${escapeHtml(tag)}<button data-remove-tag="${escapeHtml(tag)}" title="Remove tag" aria-label="Remove tag ${escapeHtml(tag)}">×</button></span>`).join('');
+}
+function renderLinks(post, shown) {
+  const kept = new Set(shown.links);
+  $('#post-links').innerHTML = post.links.map(link => {
+    const removed = !kept.has(link);
+    return `<span class="link${removed ? ' removed' : ''}"><a href="${escapeHtml(link)}" data-external>${escapeHtml(link)}</a>`
+      + `<button data-toggle-link="${escapeHtml(link)}" title="${removed ? 'Keep this link' : 'Do not send this link'}">${removed ? '↺' : '×'}</button></span>`;
+  }).join('');
+}
+function fitText() {
+  const area = $('#edit-text');
+  area.style.height = 'auto';
+  area.style.height = `${area.scrollHeight + 2}px`;
 }
 
 function renderTrash() {
@@ -233,9 +266,6 @@ function setActionsDisabled(disabled) {
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
 }
-function linkify(text) {
-  return escapeHtml(text).replace(/https?:\/\/[^\s<]+/g, url => `<a href="${url}" data-external>${url}</a>`);
-}
 
 let toastTimer;
 function toast(message, error = false) {
@@ -252,11 +282,25 @@ function openExternal(url) {
   else window.open(url, '_blank');
 }
 
+// --- theme -----------------------------------------------------------------
+// "Match Eagle" follows Eagle's own theme (LIGHT, LIGHTGRAY, GRAY, DARK…);
+// outside Eagle it follows the system.
+function applyTheme(eagleTheme) {
+  const choice = settings.theme || 'auto';
+  const fromEagle = eagleTheme || globalThis.eagle?.app?.theme;
+  const theme = choice !== 'auto' ? choice
+    : fromEagle ? (/^(light|lightgray)$/i.test(String(fromEagle)) ? 'light' : 'dark')
+    : '';
+  if (theme) document.documentElement.dataset.theme = theme;
+  else delete document.documentElement.dataset.theme;
+}
+
 // --- settings --------------------------------------------------------------
 function openSettings() {
   $('#kk-url').value = settings.url || '';
   $('#kk-key').value = settings.apiKey || '';
   $('#kk-insecure').checked = Boolean(settings.insecure);
+  $('#theme-select').value = settings.theme || 'auto';
   $('#settings-status').textContent = '';
   $('#settings').showModal();
 }
@@ -264,7 +308,9 @@ function readSettingsForm() {
   settings.url = $('#kk-url').value.trim();
   settings.apiKey = $('#kk-key').value.trim();
   settings.insecure = $('#kk-insecure').checked;
+  settings.theme = $('#theme-select').value;
   saveSettings();
+  applyTheme();
 }
 
 // --- wiring ----------------------------------------------------------------
@@ -281,6 +327,31 @@ $('#act-trash').addEventListener('click', () => run(async post => toggleTrash(po
 $('#act-next').addEventListener('click', () => move(1));
 $('#act-prev').addEventListener('click', () => move(-1));
 $('#open-settings').addEventListener('click', openSettings);
+$('#theme-select').addEventListener('change', () => { settings.theme = $('#theme-select').value; saveSettings(); applyTheme(); });
+
+// Editing: title and text save as you type; tags and links on click.
+$('#edit-title').addEventListener('input', event => { const post = currentPost(); if (post) { setEdits(post, { title: event.target.value }); $('#edit-reset').hidden = false; } });
+$('#edit-text').addEventListener('input', event => { const post = currentPost(); if (post) { setEdits(post, { text: event.target.value }); fitText(); $('#edit-reset').hidden = false; } });
+$('#add-tag').addEventListener('keydown', event => {
+  if (event.key !== 'Enter' && event.key !== ',') return;
+  event.preventDefault();
+  const post = currentPost();
+  const tag = event.target.value.replace(/^#/, '').trim();
+  if (!post || !tag) return;
+  setEdits(post, { tags: [...editedPost(post).tags, tag] });
+  event.target.value = '';
+  render();
+});
+$('#edit-reset').addEventListener('click', () => {
+  const post = currentPost();
+  if (!post) return;
+  const { edits, ...rest } = entryOf(post);
+  state.posts[stateKey(post)] = rest;
+  saveState();
+  $('#edit-title').blur(); $('#edit-text').blur();
+  render();
+  toast('Edits reset to the exported post.');
+});
 $('#settings').addEventListener('close', readSettingsForm);
 $('#test-karakeep').addEventListener('click', async () => {
   readSettingsForm();
@@ -299,6 +370,20 @@ document.addEventListener('click', event => {
   if (link) { event.preventDefault(); openExternal(link.getAttribute('href')); return; }
   const file = event.target.closest('[data-file]');
   if (file) { openExternal(pathToFileURL(file.dataset.file).href); return; }
+  const removeTag = event.target.closest('[data-remove-tag]');
+  if (removeTag) { const post = currentPost(); if (post) { setEdits(post, { tags: editedPost(post).tags.filter(tag => tag !== removeTag.dataset.removeTag) }); render(); } return; }
+  const toggleLink = event.target.closest('[data-toggle-link]');
+  if (toggleLink) {
+    const post = currentPost();
+    if (post) {
+      const removed = new Set(entryOf(post).edits?.removedLinks || []);
+      const link = toggleLink.dataset.toggleLink;
+      removed.has(link) ? removed.delete(link) : removed.add(link);
+      setEdits(post, { removedLinks: [...removed] });
+      render();
+    }
+    return;
+  }
   const restore = event.target.closest('[data-restore]');
   if (restore) { const post = posts.find(item => item.key === restore.dataset.restore); if (post) { update(post, { trash: false }); render(); } return; }
   if (event.target.id === 'copy-links') {
@@ -310,6 +395,7 @@ document.addEventListener('click', event => {
 
 // Physical keys (event.code), so E and K also work in the Ukrainian layout.
 document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && event.target.closest('#card input, #card textarea')) { event.target.blur(); return; }
   if (!chat || view === 'trash' || $('#settings').open || event.target.closest('input, textarea, select')) return;
   if (event.metaKey || event.ctrlKey || event.altKey) return;
   const actions = {
@@ -325,6 +411,8 @@ document.addEventListener('keydown', event => {
 });
 
 const start = () => {
+  applyTheme();
+  globalThis.eagle?.onThemeChanged?.(theme => applyTheme(theme));
   render();
   if (settings.lastExport && fs.existsSync(path.join(settings.lastExport, 'result.json'))) loadExport(settings.lastExport);
 };

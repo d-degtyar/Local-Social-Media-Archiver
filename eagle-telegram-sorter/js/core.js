@@ -118,9 +118,25 @@
     return new Date(post.unix * 1000).toISOString().slice(0, 10);
   }
 
-  function tagsFor(chat, post) {
+  function defaultTags(chat, post) {
     return [...new Set(['telegram', chat.name, ...post.hashtags].filter(Boolean))];
   }
+
+  // The post as the user edited it: title, text, tags and which links to keep.
+  // Anything not edited keeps the value from the export.
+  function edited(chat, post, edits = {}) {
+    const text = typeof edits.text === 'string' ? edits.text.trim() : post.text;
+    const removed = new Set(edits.removedLinks || []);
+    return {
+      ...post,
+      text,
+      title: typeof edits.title === 'string' && edits.title.trim() ? edits.title.trim().slice(0, 200) : firstLine(text),
+      titleEdited: typeof edits.title === 'string' && Boolean(edits.title.trim()),
+      tags: Array.isArray(edits.tags) ? [...new Set(edits.tags.map(tag => String(tag).trim()).filter(Boolean))] : defaultTags(chat, post),
+      links: post.links.filter(link => !removed.has(link))
+    };
+  }
+  const tagsFor = (chat, post) => post.tags || defaultTags(chat, post);
 
   function noteFor(chat, post) {
     return [
@@ -138,7 +154,7 @@
 
   // One Eagle item per media file. join() builds the absolute path.
   function eagleItems(chat, post, join) {
-    const title = firstLine(post.text) || `${chat.name} ${formatDate(post)}`;
+    const title = post.title || firstLine(post.text) || `${chat.name} ${formatDate(post)}`;
     const annotation = [noteFor(chat, post), ...post.links].join('\n').slice(0, 15000);
     return post.media.map((item, index) => ({
       path: join(item.path),
@@ -154,13 +170,13 @@
     const createdAt = new Date(post.unix * 1000).toISOString();
     const note = noteFor(chat, post);
     if (post.links.length) {
-      return post.links.map(url => ({ body: { type: 'link', url, note, createdAt }, tags: tagsFor(chat, post) }));
+      return post.links.map(url => ({ body: { type: 'link', url, note, ...(post.titleEdited ? { title: post.title } : {}), createdAt }, tags: tagsFor(chat, post) }));
     }
     if (!post.text) return [];
-    return [{ body: { type: 'text', text: note, title: firstLine(post.text), createdAt }, tags: tagsFor(chat, post) }];
+    return [{ body: { type: 'text', text: note, title: post.title || firstLine(post.text), createdAt }, tags: tagsFor(chat, post) }];
   }
 
-  const api = { readChats, buildPosts, postLink, eagleItems, karakeepBookmarks, firstLine, formatDate };
+  const api = { readChats, buildPosts, postLink, eagleItems, karakeepBookmarks, firstLine, formatDate, defaultTags, edited };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.TelegramSorterCore = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
