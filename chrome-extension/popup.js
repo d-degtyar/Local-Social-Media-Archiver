@@ -21,10 +21,11 @@ for (const button of document.querySelectorAll('button')) button.addEventListene
   }
 });
 
-function downloadSummary({ mediaCount, pending, failed }) {
+function downloadSummary({ mediaCount, pending, failed, renamed }) {
   const lines = [pending ? `Saving ${mediaCount + pending} media to Downloads.` : `Downloaded: ${mediaCount} media + post.txt.`];
   if (pending) lines.push(`${pending} still downloading in Chrome — no need to wait.`);
   if (failed) lines.push(`${failed} failed. Links may have expired: reload the page and retry.`);
+  if (renamed) lines.push('Another extension renamed these files, so they are in the Downloads root under default names. Turn off download-manager extensions, or remove and reinstall this one so Chrome lets it name its files.');
   return lines.join('\n');
 }
 

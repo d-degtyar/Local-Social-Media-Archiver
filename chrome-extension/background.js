@@ -1,3 +1,42 @@
+// When another extension listens to onDeterminingFilename (download
+// managers, some "save to" add-ons), Chrome can drop the filename given to
+// downloads.download, and files land in Downloads as "download (3).jpg".
+// Listening here as well lets this extension restate the name and folder for
+// its own downloads. Every other download gets an empty suggestion: no change.
+const plannedNames = new Map();
+chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
+  const filename = plannedNames.get(item.url) || plannedNames.get(item.finalUrl);
+  if (!filename) { suggest(); return; }
+  plannedNames.delete(item.url);
+  plannedNames.delete(item.finalUrl);
+  suggest({ filename, conflictAction: 'uniquify' });
+});
+const ARCHIVE_FOLDER = 'Local Social Archive';
+async function startDownload(options) {
+  try { return await downloadNamed(options, options.filename); }
+  catch (error) {
+    // A file system that cannot store a character in the title (rare, but
+    // Chrome reports it as "Invalid filename"): keep the file, Latin-only name.
+    if (!/invalid filename/i.test(error?.message || '')) throw error;
+    return downloadNamed(options, asciiPath(options.filename));
+  }
+}
+function downloadNamed(options, filename) {
+  plannedNames.set(options.url, filename);
+  // Forget the name if the download never reaches filename selection.
+  setTimeout(() => plannedNames.delete(options.url), 60_000);
+  return chrome.downloads.download({ ...options, filename });
+}
+function asciiPath(path) {
+  const latin = (text, fallback) => text.replace(/[^\x20-\x7e]+/g, '').replace(/[\\/:*?"<>|]+/g, ' ')
+    .replace(/\s+/g, ' ').replace(/^[\s.-]+|[\s.-]+$/g, '') || fallback;
+  return path.split('/').map((part, index, parts) => {
+    if (index < parts.length - 1) return latin(part, 'unknown');
+    const dot = part.lastIndexOf('.');
+    return dot > 0 ? `${latin(part.slice(0, dot), 'media')}${part.slice(dot)}` : latin(part, 'media');
+  }).join('/');
+}
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type !== 'ARCHIVE_ACTIVE_TAB') return;
   archiveActiveTab(message.destination, message.universal === true).then(sendResponse).catch(error => sendResponse({ ok: false, error: error.message }));
@@ -28,7 +67,7 @@ async function archiveActiveTab(destination = 'downloads', universal = false) {
   const uniqueMedia = [...new Map(post.media.map(item => [item.url, item])).values()];
   if (destination === 'eagle') return saveToEagle(post, uniqueMedia);
 
-  const folder = `Local Social Archive/${safeName(post.platform)}/${safeTitle(post.author || '') || 'unknown'}-${stamp()}`;
+  const folder = `${ARCHIVE_FOLDER}/${safeName(post.platform)}/${safeTitle(post.author || '') || 'unknown'}-${stamp()}`;
   // Files named after the video or pin title (YouTube, Pinterest) are easier
   // to find than 01-image.jpg; posts without a title keep the numbered names.
   const titleName = post.headline ? safeTitle(post.headline) : '';
@@ -37,16 +76,17 @@ async function archiveActiveTab(destination = 'downloads', universal = false) {
     const base = titleName ? (uniqueMedia.length > 1 ? `${titleName} ${number}` : titleName) : `${number}-${item.kind}`;
     return `${base}.${extensionFrom(item.url, item.kind)}`;
   });
-  await downloadText(`${folder}/post.txt`, postSummary(post, filenames));
+  const ids = [await downloadText(`${folder}/post.txt`, postSummary(post, filenames))];
 
   const states = await Promise.all(uniqueMedia.map(async (item, index) => {
     try {
-      const id = await chrome.downloads.download({
+      const id = await startDownload({
         url: item.url,
         filename: `${folder}/${filenames[index]}`,
         conflictAction: 'uniquify',
         saveAs: false
       });
+      ids.push(id);
       // download() resolves once a download starts, not when it succeeds.
       // Expired CDN links fail afterwards with a 403, so wait for the outcome.
       return await waitForDownload(id);
@@ -56,7 +96,18 @@ async function archiveActiveTab(destination = 'downloads', universal = false) {
   const mediaCount = count('complete');
   const failed = count('interrupted');
   if (failed === uniqueMedia.length) return { ok: false, error: 'Downloads failed. Media links may have expired: reload the page and retry.' };
-  return { ok: true, mediaCount, pending: count('in_progress'), failed };
+  return { ok: true, mediaCount, pending: count('in_progress'), failed, renamed: await renamedByAnotherExtension(ids) };
+}
+
+// Chrome lets the most recently installed extension that listens to
+// onDeterminingFilename decide download names. If that is another extension,
+// our files land in the Downloads root as "download.txt" or "maxresdefault.jpg";
+// detect it so the popup can say why and what fixes it.
+async function renamedByAnotherExtension(ids) {
+  try {
+    const items = (await Promise.all(ids.filter(Boolean).map(id => chrome.downloads.search({ id })))).flat();
+    return items.some(item => item.filename && !item.filename.includes(ARCHIVE_FOLDER));
+  } catch { return false; }
 }
 
 // Expired links fail within a second or two, so a short wait catches them
@@ -207,5 +258,5 @@ function postKind(url) {
 async function downloadText(filename, text) {
   // The BOM keeps Cyrillic and emoji captions readable in older Windows Notepad.
   const dataUrl = `data:text/plain;charset=utf-8,${encodeURIComponent('\uFEFF' + text)}`;
-  await chrome.downloads.download({ url: dataUrl, filename, conflictAction: 'uniquify', saveAs: false });
+  return startDownload({ url: dataUrl, filename, conflictAction: 'uniquify', saveAs: false });
 }
