@@ -28,8 +28,15 @@ async function archiveActiveTab(destination = 'downloads', universal = false) {
   const uniqueMedia = [...new Map(post.media.map(item => [item.url, item])).values()];
   if (destination === 'eagle') return saveToEagle(post, uniqueMedia);
 
-  const folder = `Local Social Archive/${safeName(post.platform)}/${safeName(post.author || 'unknown')}-${stamp()}`;
-  const filenames = uniqueMedia.map((item, index) => `${String(index + 1).padStart(2, '0')}-${item.kind}.${extensionFrom(item.url, item.kind)}`);
+  const folder = `Local Social Archive/${safeName(post.platform)}/${safeTitle(post.author || '') || 'unknown'}-${stamp()}`;
+  // Files named after the video or pin title (YouTube, Pinterest) are easier
+  // to find than 01-image.jpg; posts without a title keep the numbered names.
+  const titleName = post.headline ? safeTitle(post.headline) : '';
+  const filenames = uniqueMedia.map((item, index) => {
+    const number = String(index + 1).padStart(2, '0');
+    const base = titleName ? (uniqueMedia.length > 1 ? `${titleName} ${number}` : titleName) : `${number}-${item.kind}`;
+    return `${base}.${extensionFrom(item.url, item.kind)}`;
+  });
   await downloadText(`${folder}/post.txt`, postSummary(post, filenames));
 
   const states = await Promise.all(uniqueMedia.map(async (item, index) => {
@@ -144,6 +151,18 @@ function isSupported(url) {
       || host.endsWith('reddit.com')
       || /(^|\.)pinterest\.(com|[a-z]{2}|co\.[a-z]{2}|com\.[a-z]{2})$/.test(host);
   } catch { return false; }
+}
+// Keeps letters in any script, digits, spaces, and punctuation that every
+// file system accepts; drops characters Windows or macOS reject in names.
+function safeTitle(value) {
+  const name = String(value)
+    .replace(/[\\/:*?"<>|\u0000-\u001f\u007f]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 100)
+    .replace(/^[.\s]+|[.\s]+$/g, '');
+  // CON, PRN, NUL, COM1… are reserved device names on Windows.
+  return /^(con|prn|aux|nul|com\d|lpt\d)$/i.test(name) ? `_${name}` : name;
 }
 function safeName(value) { return String(value).replace(/[^a-z0-9._-]+/gi, '_').replace(/^_+|_+$/g, '').slice(0, 80) || 'post'; }
 function stamp() { return new Date().toISOString().replace(/[:.]/g, '-'); }

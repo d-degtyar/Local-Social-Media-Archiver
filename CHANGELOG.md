@@ -3,7 +3,7 @@
 ## 0.2.4 — Unreleased
 
 - YouTube videos and Shorts save as references: the cover image at the highest available size (maxres, then SD, then HQ), with the title, channel, description, and link. The video itself is not downloaded, in line with YouTube's terms and Chrome Web Store policy.
-- Eagle items from YouTube and Pinterest are named after the video or pin title.
+- Eagle items and Downloads files from YouTube and Pinterest are named after the video or pin title (no more maxresdefault.jpg). Folder names keep non-Latin author names.
 
 ## 0.2.3 — Unreleased
 
