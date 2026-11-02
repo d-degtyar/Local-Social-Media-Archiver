@@ -11,7 +11,13 @@
       try { url = new URL(address); } catch { reject(new Error(`Invalid address: ${address}`)); return; }
       const payload = body === undefined ? null : Buffer.from(JSON.stringify(body));
       const client = url.protocol === 'https:' ? https : http;
-      const request = client.request(url, {
+      // request(options, callback): the only form older Node versions (as
+      // bundled in some Eagle releases) accept; request(url, options, …) fails there.
+      const request = client.request({
+        protocol: url.protocol,
+        hostname: url.hostname.replace(/^\[|\]$/g, ''),
+        port: url.port || undefined,
+        path: `${url.pathname}${url.search}`,
         method,
         headers: { Accept: 'application/json', ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': payload.length } : {}), ...headers },
         // A NAS often serves HTTPS with a self-signed certificate.
@@ -28,10 +34,21 @@
         });
       });
       request.on('timeout', () => request.destroy(new Error('No answer (timed out)')));
-      request.on('error', reject);
+      request.on('error', error => reject(new Error(friendly(error, url))));
       if (payload) request.write(payload);
       request.end();
     });
+  }
+
+  function friendly(error, url) {
+    const where = `${url.hostname}${url.port ? `:${url.port}` : ''}`;
+    if (/ECONNREFUSED|EHOSTUNREACH|ENOTFOUND|ETIMEDOUT|timed out/i.test(`${error.code} ${error.message}`)) {
+      return url.port === '41595' ? 'Eagle is not reachable. Keep Eagle open.' : `Nothing answers at ${where}. Check the address and that the server is on.`;
+    }
+    if (/self[- ]signed|certificate|UNABLE_TO_VERIFY|CERT_/i.test(`${error.code} ${error.message}`)) {
+      return `${where} uses a certificate this computer does not trust. Tick "Allow a self-signed HTTPS certificate" in Settings.`;
+    }
+    return error.message;
   }
 
   // Eagle's local Web API, the same one the Chrome extension uses.
