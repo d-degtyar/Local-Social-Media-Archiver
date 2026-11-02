@@ -15,7 +15,7 @@ Save visual references from the web directly to [Eagle](https://eagle.cool/) or 
 - YouTube videos and Shorts as references: the cover image at the highest available resolution, with the title, channel, description, and link. The video itself is not downloaded.
 - Any other site through **I feel lucky** — an opt-in, best-effort media collector
 - Eagle import with the original post URL, a clean title, tags, and caption/description
-- Local Downloads fallback with a `post.txt` note (author, link, caption)
+- Save to Downloads: one `Downloads/Local Social Archive` folder; each post's files share a name (the video or pin title, or platform, author, and time) with a `.txt` note holding the author, link, and caption
 
 > **I feel lucky** requests permission only for the site currently open in your tab. It is intended for public, browser-accessible media and does not guarantee support for every website.
 

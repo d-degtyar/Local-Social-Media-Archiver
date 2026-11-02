@@ -67,16 +67,18 @@ async function archiveActiveTab(destination = 'downloads', universal = false) {
   const uniqueMedia = [...new Map(post.media.map(item => [item.url, item])).values()];
   if (destination === 'eagle') return saveToEagle(post, uniqueMedia);
 
-  const folder = `${ARCHIVE_FOLDER}/${safeName(post.platform)}/${safeTitle(post.author || '') || 'unknown'}-${stamp()}`;
-  // Files named after the video or pin title (YouTube, Pinterest) are easier
-  // to find than 01-image.jpg; posts without a title keep the numbered names.
-  const titleName = post.headline ? safeTitle(post.headline) : '';
+  // One flat folder, no subfolder per post. Every file of a post shares a base
+  // name, so they sort together and never overwrite another post's files:
+  //   "Motion reel 2026.jpg" + "Motion reel 2026.txt"            (titled posts)
+  //   "Instagram studio 2026-11-02 14-20 01.jpg" … + ".txt"     (all others)
+  const base = (post.headline && safeTitle(post.headline))
+    || safeTitle(`${PLATFORM_NAMES[post.platform] || 'Web'} ${post.author || ''} ${localStamp()}`);
   const filenames = uniqueMedia.map((item, index) => {
-    const number = String(index + 1).padStart(2, '0');
-    const base = titleName ? (uniqueMedia.length > 1 ? `${titleName} ${number}` : titleName) : `${number}-${item.kind}`;
-    return `${base}.${extensionFrom(item.url, item.kind)}`;
+    const number = uniqueMedia.length > 1 ? ` ${String(index + 1).padStart(2, '0')}` : '';
+    return `${base}${number}.${extensionFrom(item.url, item.kind)}`;
   });
-  const ids = [await downloadText(`${folder}/post.txt`, postSummary(post, filenames))];
+  const folder = ARCHIVE_FOLDER;
+  const ids = [await downloadText(`${folder}/${base}.txt`, postSummary(post, filenames))];
 
   const states = await Promise.all(uniqueMedia.map(async (item, index) => {
     try {
@@ -216,7 +218,8 @@ function safeTitle(value) {
   return /^(con|prn|aux|nul|com\d|lpt\d)$/i.test(name) ? `_${name}` : name;
 }
 function safeName(value) { return String(value).replace(/[^a-z0-9._-]+/gi, '_').replace(/^_+|_+$/g, '').slice(0, 80) || 'post'; }
-function stamp() { return new Date().toISOString().replace(/[:.]/g, '-'); }
+// Local date and time to the minute, e.g. 2026-11-02 14-20 (no colons in file names).
+function localStamp() { return new Date().toLocaleString('sv-SE').slice(0, 16).replace(':', '-'); }
 function extensionFrom(url, kind) {
   try {
     const parsed = new URL(url);
