@@ -3,6 +3,7 @@
 ## 0.2.4 — Unreleased
 
 - YouTube videos and Shorts save as references: the cover image at the highest available size (maxres, then SD, then HQ), with the title, channel, description, and link. The video itself is not downloaded, in line with YouTube's terms and Chrome Web Store policy.
+- YouTube description is the uploader's text, not the rendered page: after navigating inside YouTube the extension loads the video's own page for its data, so the note no longer fills with view-counter digits and "…more" buttons.
 - Eagle items and Downloads files from YouTube and Pinterest are named after the video or pin title (no more maxresdefault.jpg). Folder names keep non-Latin author names.
 - Downloads keep their folder and names when another extension (a download manager, for example) also listens to Chrome's download naming: the extension restates its own names. Chrome gives the last-installed extension the final say; when that is the other extension, the popup now says so and how to fix it.
 - If Chrome rejects a title as a file name, the file is saved under a Latin-only name instead of failing.

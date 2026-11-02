@@ -465,7 +465,7 @@
   async function collectYouTubeVideo() {
     const videoId = youTubeVideoId();
     const isShort = location.pathname.startsWith('/shorts/');
-    const details = videoId ? youTubeDetails(videoId) : null;
+    const details = videoId ? await youTubeDetails(videoId) : null;
     const cover = videoId ? await youTubeCover(videoId) : '';
     const title = details?.title || '';
     const description = details?.description || '';
@@ -486,20 +486,22 @@
     const id = fromQuery || fromPath || '';
     return /^[A-Za-z0-9_-]{11}$/.test(id) ? id : '';
   }
-  function youTubeDetails(videoId) {
+  async function youTubeDetails(videoId) {
     // ytInitialPlayerResponse describes the first video loaded in the tab;
     // YouTube swaps videos without reloading, so use it only if the id matches.
-    const scripts = [...document.querySelectorAll('script:not([src])')];
-    for (const script of scripts) {
-      const text = script.textContent || '';
-      if (!text.includes('ytInitialPlayerResponse') || !text.includes(videoId)) continue;
-      const start = text.indexOf('{', text.indexOf('ytInitialPlayerResponse'));
-      const json = start >= 0 ? balancedJson(text, start) : '';
-      try {
-        const details = JSON.parse(json)?.videoDetails;
-        if (details?.videoId === videoId) return { title: details.title, channel: details.author, description: details.shortDescription };
-      } catch { /* not the player response */ }
-    }
+    const inPage = [...document.querySelectorAll('script:not([src])')]
+      .map(script => script.textContent || '')
+      .find(text => text.includes('ytInitialPlayerResponse') && text.includes(videoId));
+    const fromPage = inPage && playerDetails(inPage, videoId);
+    if (fromPage) return fromPage;
+    // Opened by navigating inside YouTube: load this video's own page for its
+    // data. The rendered description is not used: it carries interface text
+    // ("…more", view counters drawn as columns of digits).
+    try {
+      const response = await fetch(`/watch?v=${videoId}`, { credentials: 'include' });
+      const fetched = response.ok && playerDetails(await response.text(), videoId);
+      if (fetched) return fetched;
+    } catch { /* fall back to the title and channel on screen */ }
     const watch = document.querySelector('ytd-watch-metadata');
     const activeShort = document.querySelector('ytd-reel-video-renderer[is-active]');
     const title = watch?.querySelector('h1')?.innerText
@@ -508,8 +510,16 @@
     const channel = watch?.querySelector('#channel-name a, ytd-channel-name a')?.innerText
       || activeShort?.querySelector('a[href^="/@"]')?.innerText?.replace(/^@/, '')
       || '';
-    const description = watch?.querySelector('#description-inline-expander, #description')?.innerText || '';
-    return { title: title.trim(), channel: channel.trim(), description: description.trim() };
+    return { title: title.trim(), channel: channel.trim(), description: '' };
+  }
+  function playerDetails(text, videoId) {
+    const marker = text.indexOf('ytInitialPlayerResponse');
+    const start = marker >= 0 ? text.indexOf('{', marker) : -1;
+    try {
+      const details = start >= 0 ? JSON.parse(balancedJson(text, start))?.videoDetails : null;
+      if (details?.videoId !== videoId) return null;
+      return { title: details.title || '', channel: details.author || '', description: (details.shortDescription || '').trim() };
+    } catch { return null; }
   }
   function balancedJson(text, start) {
     let depth = 0, inString = false, escaped = false;
