@@ -1,5 +1,9 @@
 # Changelog
 
+## Telegram Sorter 0.1.0 — Unreleased
+
+- New Eagle plugin: open a Telegram Desktop JSON export and sort it post by post. E sends a post's media to Eagle (folder per channel, text as note, hashtags as tags, link back to the post); K sends its links, or its text as a note, to Karakeep; Del moves it to an in-plugin Trash with restore and a list of Telegram links for manual deletion. Albums are merged back into one post; progress is saved next to the export.
+
 ## 0.2.4 — Unreleased
 
 - YouTube videos and Shorts save as references: the cover image at the highest available size (maxres, then SD, then HQ), with the title, channel, description, and link. The video itself is not downloaded, in line with YouTube's terms and Chrome Web Store policy.

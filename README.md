@@ -50,6 +50,10 @@ The companion is an onboarding and connection-check plugin. It does not receive 
 
 The Chrome extension saves directly to Eagle's local Web API at `localhost:41595` when Eagle is open.
 
+## Telegram Sorter
+
+A separate Eagle plugin for your own Telegram channels: open a Telegram Desktop export and decide post by post what goes to Eagle, what goes to Karakeep, and what goes to the Trash. See [eagle-telegram-sorter/README.md](eagle-telegram-sorter/README.md).
+
 ## Privacy
 
 - No user account, cloud processing, analytics, or external backend.
@@ -60,8 +64,9 @@ The Chrome extension saves directly to Eagle's local Web API at `localhost:41595
 ## Project structure
 
 ```text
-chrome-extension/    Chrome Manifest V3 extension
-eagle-companion/     Eagle Plugin Marketplace companion/onboarding plugin
+chrome-extension/       Chrome Manifest V3 extension
+eagle-companion/        Eagle Plugin Marketplace companion/onboarding plugin
+eagle-telegram-sorter/  Eagle plugin: sort an exported Telegram channel into Eagle and Karakeep
 docs/                 README images, brand icon sources, store assets
 ```
 

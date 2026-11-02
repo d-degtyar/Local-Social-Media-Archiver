@@ -1,0 +1,22 @@
+{
+  "id": "2d6e154a-9ad4-42bf-9ea4-808d5ae064e4",
+  "version": "0.1.0",
+  "platform": "all",
+  "arch": "all",
+  "name": "Telegram Sorter",
+  "logo": "/logo.png",
+  "keywords": ["telegram", "export", "karakeep", "sort", "archive"],
+  "devTools": false,
+  "main": {
+    "url": "index.html",
+    "width": 1040,
+    "height": 760,
+    "minWidth": 720,
+    "minHeight": 560,
+    "resizable": true,
+    "maximizable": true,
+    "multiple": false,
+    "runAfterInstall": false,
+    "backgroundColor": "#f7f8fa"
+  }
+}
