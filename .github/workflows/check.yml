@@ -14,6 +14,6 @@ jobs:
         with:
           node-version: 22
       - name: Check JavaScript syntax
-        run: for file in chrome-extension/*.js eagle-companion/js/*.js eagle-telegram-sorter/js/*.js; do node --check "$file"; done
+        run: for file in chrome-extension/*.js eagle-companion/js/*.js; do node --check "$file"; done
       - name: Validate manifests
-        run: for file in chrome-extension/manifest.json eagle-companion/manifest.json eagle-telegram-sorter/manifest.json; do node -e "JSON.parse(require('fs').readFileSync('$file', 'utf8'))"; done
+        run: for file in chrome-extension/manifest.json eagle-companion/manifest.json; do node -e "JSON.parse(require('fs').readFileSync('$file', 'utf8'))"; done

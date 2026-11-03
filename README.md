@@ -52,7 +52,7 @@ The Chrome extension saves directly to Eagle's local Web API at `localhost:41595
 
 ## Telegram Sorter
 
-A separate Eagle plugin for your own Telegram channels: open a Telegram Desktop export and decide post by post what goes to Eagle, what goes to Karakeep, and what goes to the Trash. See [eagle-telegram-sorter/README.md](eagle-telegram-sorter/README.md).
+A separate Eagle plugin for your own Telegram channels: open a Telegram Desktop export and decide post by post what goes to Eagle, what goes to Karakeep, and what goes to the Trash. It now lives in its own repository: [d-degtyar/eagle-telegram-sorter](https://github.com/d-degtyar/eagle-telegram-sorter).
 
 ## Privacy
 
@@ -66,7 +66,6 @@ A separate Eagle plugin for your own Telegram channels: open a Telegram Desktop 
 ```text
 chrome-extension/       Chrome Manifest V3 extension
 eagle-companion/        Eagle Plugin Marketplace companion/onboarding plugin
-eagle-telegram-sorter/  Eagle plugin: sort an exported Telegram channel into Eagle and Karakeep
 docs/                 README images, brand icon sources, store assets
 ```
 

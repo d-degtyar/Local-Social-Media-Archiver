@@ -17,8 +17,6 @@ jobs:
         run: cd chrome-extension && zip -r ../local-social-media-archiver-chrome.zip .
       - name: Package Eagle Companion
         run: cd eagle-companion && zip -r ../local-social-media-archiver-eagle-companion.zip .
-      - name: Package Telegram Sorter
-        run: cd eagle-telegram-sorter && zip -r ../eagle-telegram-sorter.zip . -x README.md
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
@@ -26,4 +24,3 @@ jobs:
           files: |
             local-social-media-archiver-chrome.zip
             local-social-media-archiver-eagle-companion.zip
-            eagle-telegram-sorter.zip

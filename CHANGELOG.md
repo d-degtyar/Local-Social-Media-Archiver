@@ -1,10 +1,8 @@
 # Changelog
 
-## Telegram Sorter 0.1.0 — Unreleased
+## Telegram Sorter
 
-- New Eagle plugin: open a Telegram Desktop JSON export and sort it post by post. E sends a post's media to Eagle (folder per channel, text as note, hashtags as tags, link back to the post); K sends its links, or its text as a note, to Karakeep; Del moves it to an in-plugin Trash with restore and a list of Telegram links for manual deletion. Albums are merged back into one post; progress is saved next to the export.
-- Edit before sending: title, text, tags (remove the defaults or add your own) and links (switch off any you do not want in Karakeep); edits are saved with the progress and can be reset.
-- Dark theme that follows Eagle's theme, with a Light/Dark override in Settings.
+- Moved to its own repository, with its history: [d-degtyar/eagle-telegram-sorter](https://github.com/d-degtyar/eagle-telegram-sorter).
 
 ## 0.2.4 — Unreleased
 
