@@ -1,5 +1,9 @@
 # Changelog
 
+## Telegram Sorter
+
+- Moved to its own repository, with its history: [d-degtyar/eagle-telegram-sorter](https://github.com/d-degtyar/eagle-telegram-sorter).
+
 ## 0.2.4 — Unreleased
 
 - YouTube videos and Shorts save as references: the cover image at the highest available size (maxres, then SD, then HQ), with the title, channel, description, and link. The video itself is not downloaded, in line with YouTube's terms and Chrome Web Store policy.
