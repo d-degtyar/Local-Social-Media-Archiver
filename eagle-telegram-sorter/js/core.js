@@ -177,6 +177,8 @@
   }
 
   const api = { readChats, buildPosts, postLink, eagleItems, karakeepBookmarks, firstLine, formatDate, defaultTags, edited };
-  if (typeof module === 'object' && module.exports) module.exports = api;
-  else root.TelegramSorterCore = api;
+  // Always publish to the page: Eagle plugin pages also define a Node-style
+  // `module`, so an either/or check would hide the API from app.js.
+  root.TelegramSorterCore = api;
+  if (typeof module === 'object' && module && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
