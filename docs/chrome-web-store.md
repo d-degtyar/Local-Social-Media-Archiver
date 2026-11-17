@@ -37,8 +37,10 @@ Save images and videos from the post you're viewing to Eagle or your Downloads f
 > • Pinterest pins at original size, including videos and idea pins: only the open pin, never related or promoted pins
 > • X (Twitter) photos at original size and videos
 > • YouTube: saves a video's cover image with its title, channel, and link as a reference. The video itself is not downloaded.
-> • Vimeo: the same reference card, plus the video file when its owner allows downloads
+> • Vimeo: the video file when its owner allows downloads, otherwise the same reference card
 > • "I feel lucky": try any other site, with permission requested only for that site
+>
+> Stacks for Eagle (optional): every post gets its own folder and a cover, so a smart folder shows one tile per post instead of loose slides. A short guide opens the first time you turn it on.
 >
 > Private by design. No account, no server, no analytics. The extension works with your existing browser session and talks to Eagle only through its local API on your computer.
 >
@@ -49,6 +51,8 @@ Save images and videos from the post you're viewing to Eagle or your Downloads f
 
 **Category:** Tools. Workflow & Planning also fits.
 **Language:** English
+
+**Screenshots for 0.2.5:** `docs/store/screenshot-1280x800.png` (popup) and `docs/store/screenshot-stacks-1280x800.png` (stacks).
 
 **Graphic assets:**
 | Field | File |
