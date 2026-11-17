@@ -156,9 +156,15 @@ function waitForDownload(id, timeout = 3_000) {
 const STACKS_FOLDER = 'Social Stacks';
 const COVER_TAG = 'Main Cover';
 async function stackFolderId(post) {
-  const list = await eagleRequest('/api/folder/list', { method: 'GET' });
-  const parent = (list.data || []).find(folder => folder.name === STACKS_FOLDER)
-    || (await eagleRequest('/api/folder/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ folderName: STACKS_FOLDER }) })).data;
+  const findParent = async () => ((await eagleRequest('/api/folder/list', { method: 'GET' })).data || []).find(folder => folder.name === STACKS_FOLDER);
+  let parent = await findParent();
+  if (!parent) {
+    const created = (await eagleRequest('/api/folder/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ folderName: STACKS_FOLDER }) })).data;
+    // On the very first stack, read the id back if the answer lacks it;
+    // otherwise that post's folder would land outside Social Stacks.
+    parent = created?.id ? created : await findParent();
+  }
+  if (!parent?.id) throw new Error('Eagle did not create the Social Stacks folder. Try again.');
   const name = (post.headline && safeTitle(post.headline))
     || safeTitle(`${PLATFORM_NAMES[post.platform] || 'Web'} ${post.author || ''} ${localStamp()}`);
   const child = await eagleRequest('/api/folder/create', {
@@ -182,8 +188,10 @@ async function saveToEagle(post, media, stack = false) {
     body: JSON.stringify({
       url: item.url,
       // A real title (YouTube video, Pinterest pin) is easier to find in Eagle.
+      // YouTube and Vimeo covers are named "(cover)": Eagle treats an item with
+      // the same name and link as a duplicate of the video itself.
       name: post.headline
-        ? `${post.headline.slice(0, 120)}${media.length > 1 ? ` ${index + 1}` : ''}`
+        ? `${post.headline.slice(0, 120)}${['youtube', 'vimeo'].includes(post.platform) ? (item.kind === 'image' ? ' (cover)' : '') : media.length > 1 ? ` ${index + 1}` : ''}`
         : `${post.platform}-${safeName(post.author || 'post')}-${String(index + 1).padStart(2, '0')}`,
       website: post.url,
       tags: stack && index === 0 ? [...tags, COVER_TAG] : tags,
@@ -232,11 +240,16 @@ async function addXEmbedMedia(post) {
 // reference. Optional permission, asked by the popup on the first Vimeo save.
 const VIMEO_PLAYER_ORIGIN = 'https://player.vimeo.com/*';
 async function addVimeoVideo(post) {
-  const { id, hash, downloadButton } = post.vimeo;
+  const { id, hash, downloadButton, configUrl } = post.vimeo;
   try {
     if (!await chrome.permissions.contains({ origins: [VIMEO_PLAYER_ORIGIN] })) { post.note = 'Video not saved: no access to the Vimeo player.'; return; }
-    const response = await fetch(`https://player.vimeo.com/video/${id}/config${hash ? `?h=${hash}` : ''}`);
-    if (!response.ok) { post.note = `Video not saved: Vimeo answered HTTP ${response.status}.`; return; }
+    const response = await fetch(configUrl || `https://player.vimeo.com/video/${id}/config${hash ? `?h=${hash}` : ''}`);
+    if (!response.ok) {
+      post.note = response.status === 403
+        ? 'Video not saved: Vimeo keeps this video\'s files private (embed-only or restricted). Saved as a reference.'
+        : `Video not saved: Vimeo answered HTTP ${response.status}.`;
+      return;
+    }
     const config = await response.json();
     const allowed = downloadButton || config.video?.allow_download === true;
     if (!allowed) { post.note = 'Video not saved: the owner has not enabled downloads. Saved as a reference.'; return; }

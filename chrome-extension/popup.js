@@ -19,14 +19,14 @@ stack.addEventListener('change', () => {
 });
 
 // Help mode: the ? button shows a caption under each control, the supported
-// sites and the fine print. On until the user first turns it off.
+// sites and the fine print. Off by default: the popup opens compact.
 const helpButton = document.querySelector('#toggle-help');
 function setHelp(on) {
   document.body.classList.toggle('help-on', on);
   helpButton.setAttribute('aria-pressed', String(on));
   helpButton.title = on ? 'Hide explanations' : 'Show explanations';
 }
-setHelp(prefs.get('helpMode') !== 'off');
+setHelp(prefs.get('helpMode') === 'on');
 helpButton.addEventListener('click', () => {
   const on = !document.body.classList.contains('help-on');
   setHelp(on);
