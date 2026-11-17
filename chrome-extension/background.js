@@ -39,11 +39,11 @@ function asciiPath(path) {
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type !== 'ARCHIVE_ACTIVE_TAB') return;
-  archiveActiveTab(message.destination, message.universal === true).then(sendResponse).catch(error => sendResponse({ ok: false, error: error.message }));
+  archiveActiveTab(message.destination, message.universal === true, message.stack === true).then(sendResponse).catch(error => sendResponse({ ok: false, error: error.message }));
   return true;
 });
 
-async function archiveActiveTab(destination = 'downloads', universal = false) {
+async function archiveActiveTab(destination = 'downloads', universal = false, stack = false) {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id || !tab.url) throw new Error('Could not find active tab.');
   if (!universal && !isSupported(tab.url)) return { ok: false, error: 'Open a post on a supported site — or enable I feel lucky.' };
@@ -54,7 +54,9 @@ async function archiveActiveTab(destination = 'downloads', universal = false) {
   if (!post?.media?.length) {
     return {
       ok: false,
-      error: post?.platform === 'youtube'
+      error: post?.platform === 'x' && !post.streamedVideo
+        ? `No photos found in this X post (${[post.diagnosis, post.embedStatus].filter(Boolean).join('; ') || 'unknown reason'}). If the post shows a content warning, click Show and retry.`
+        : post?.platform === 'youtube'
         ? 'Open a YouTube video or Short to save its cover as a reference.'
         : post?.platform === 'x' && post.streamedVideo
         ? 'X videos need access to X\'s embed service. Click Save again and choose Allow when Chrome asks.'
@@ -65,7 +67,7 @@ async function archiveActiveTab(destination = 'downloads', universal = false) {
   }
 
   const uniqueMedia = [...new Map(post.media.map(item => [item.url, item])).values()];
-  if (destination === 'eagle') return saveToEagle(post, uniqueMedia);
+  if (destination === 'eagle') return saveToEagle(post, uniqueMedia, stack);
 
   // One flat folder, no subfolder per post. Every file of a post shares a base
   // name, so they sort together and never overwrite another post's files:
@@ -136,10 +138,30 @@ function waitForDownload(id, timeout = 3_000) {
   });
 }
 
-async function saveToEagle(post, media) {
+// Eagle has no stacks. Stack mode builds them from folders and a tag: a post
+// with several files gets its own folder under "Social Stacks", and its first
+// file the "Main Cover" tag. A smart folder filtered by that tag then shows one
+// tile per post; the cover's folder holds the whole post.
+const STACKS_FOLDER = 'Social Stacks';
+const COVER_TAG = 'Main Cover';
+async function stackFolderId(post) {
+  const list = await eagleRequest('/api/folder/list', { method: 'GET' });
+  const parent = (list.data || []).find(folder => folder.name === STACKS_FOLDER)
+    || (await eagleRequest('/api/folder/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ folderName: STACKS_FOLDER }) })).data;
+  const name = (post.headline && safeTitle(post.headline))
+    || safeTitle(`${PLATFORM_NAMES[post.platform] || 'Web'} ${post.author || ''} ${localStamp()}`);
+  const child = await eagleRequest('/api/folder/create', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ folderName: name.slice(0, 120), parent: parent.id })
+  });
+  return child.data?.id;
+}
+
+async function saveToEagle(post, media, stack = false) {
   const appInfo = await eagleRequest('/api/v2/app/info', { method: 'GET' });
   if (appInfo.status !== 'success') throw new Error('Eagle did not respond. Open Eagle with an active library.');
   const tags = ['social-media', post.platform, ...(post.author ? [safeName(post.author)] : [])];
+  const folderId = stack && media.length > 1 ? await stackFolderId(post) : '';
   const annotation = [post.text, post.sourceUrl && `Source: ${post.sourceUrl}`, `Original post: ${post.url}`].filter(Boolean).join('\n\n').slice(0, 15000);
   // Eagle's Web API V2 handles app/library state, while importing a remote
   // asset remains on the compatible local V1 endpoint.
@@ -153,8 +175,9 @@ async function saveToEagle(post, media) {
         ? `${post.headline.slice(0, 120)}${media.length > 1 ? ` ${index + 1}` : ''}`
         : `${post.platform}-${safeName(post.author || 'post')}-${String(index + 1).padStart(2, '0')}`,
       website: post.url,
-      tags,
-      annotation
+      tags: stack && index === 0 ? [...tags, COVER_TAG] : tags,
+      annotation,
+      ...(folderId ? { folderId } : {})
     })
   })));
   const failed = results.filter(result => result.status === 'rejected').length;
@@ -169,11 +192,13 @@ async function saveToEagle(post, media) {
 const X_EMBED_ORIGIN = 'https://cdn.syndication.twimg.com/*';
 async function addXEmbedMedia(post) {
   try {
-    if (!await chrome.permissions.contains({ origins: [X_EMBED_ORIGIN] })) return;
+    if (!await chrome.permissions.contains({ origins: [X_EMBED_ORIGIN] })) { post.embedStatus = 'no access to the embed service'; return; }
     const token = ((Number(post.statusId) / 1e15) * Math.PI).toString(36).replace(/(0+|\.)/g, '');
     const response = await fetch(`https://cdn.syndication.twimg.com/tweet-result?id=${post.statusId}&token=${token}&lang=en`);
-    if (!response.ok) return;
+    if (!response.ok) { post.embedStatus = `embed service answered HTTP ${response.status}`; return; }
     const data = await response.json();
+    // Age-restricted or withheld posts come back as a tombstone without media.
+    if (data.__typename === 'TweetTombstone' || data.tombstone) { post.embedStatus = 'embed service hides this post (age-restricted or withheld)'; return; }
     const media = (data.mediaDetails || []).flatMap(item => {
       if (item.type === 'photo' && item.media_url_https) return [{ url: `${item.media_url_https}?name=orig`, kind: 'image' }];
       const best = (item.video_info?.variants || [])
@@ -181,10 +206,13 @@ async function addXEmbedMedia(post) {
         .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))[0];
       return best ? [{ url: best.url, kind: 'video' }] : [];
     });
+    // Older answers list photos separately.
+    if (!media.length) for (const photo of data.photos || []) if (photo.url) media.push({ url: `${photo.url.split('?')[0]}?name=orig`, kind: 'image' });
     if (media.length) post.media = media.slice(0, 20);
+    else post.embedStatus = 'embed service lists no media';
     if (!post.text && data.text) post.text = String(data.text).slice(0, 12000);
     if (!post.author && data.user?.screen_name) post.author = data.user.screen_name;
-  } catch { /* keep the photos found in the page */ }
+  } catch (error) { post.embedStatus = `embed service failed: ${error.message}`; }
 }
 
 async function eagleRequest(path, options) {

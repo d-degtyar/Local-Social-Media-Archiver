@@ -561,14 +561,26 @@
   function collectXPost() {
     const statusId = (location.pathname.match(/\/status(?:es)?\/(\d+)/) || [])[1] || '';
     const author = (location.pathname.match(/^\/([A-Za-z0-9_]{1,15})\/status/) || [])[1] || '';
+    const articles = [...document.querySelectorAll('article')];
+    // The open post: the one whose timestamp links to this id; on a post page X
+    // also marks it with tabindex="-1". Replies and thread parents link elsewhere.
     const root = statusId
-      ? [...document.querySelectorAll('article')].find(article => article.querySelector(`a[href*="/status/${statusId}"] time`))
+      ? articles.find(article => article.querySelector(`a[href*="/status/${statusId}"] time`))
+        || articles.find(article => article.getAttribute('tabindex') === '-1')
+        || articles.find(article => article.querySelector(`a[href*="/status/${statusId}/photo/"]`))
       : null;
-    const photos = root ? [...root.querySelectorAll('img[src*="pbs.twimg.com/media/"]')]
+    const urls = root ? [
+      ...[...root.querySelectorAll('img[src*="pbs.twimg.com/media/"]')].map(image => ({ node: image, url: image.currentSrc || image.src })),
+      // Photos are also painted as a background image; covered or blurred ones
+      // (content warnings) may only exist there.
+      ...[...root.querySelectorAll('[style*="pbs.twimg.com/media/"]')].map(node => ({ node, url: (node.getAttribute('style').match(/url\(["']?([^"')]+pbs\.twimg\.com\/media\/[^"')]+)/) || [])[1] || '' }))
+    ] : [];
+    const photos = urls
+      .filter(({ url }) => /pbs\.twimg\.com\/media\//.test(url))
       // Skip media of a quoted post, rendered inside the main post as a link card.
-      .filter(image => !image.closest('div[role="link"]'))
-      .map(image => ({ url: xOriginalImage(image.currentSrc || image.src), kind: 'image' })) : [];
-    const media = dedupe(photos).slice(0, MAX_MEDIA);
+      .filter(({ node }) => { const card = node.closest('div[role="link"]'); return !card || !root.contains(card) || card === root; })
+      .map(({ url }) => ({ url: xOriginalImage(url.replace(/&amp;/g, '&')), kind: 'image' }));
+    const media = [...new Map(photos.map(item => [xMediaKey(item.url), item])).values()].slice(0, MAX_MEDIA);
     return {
       platform: 'x',
       url: statusId && author ? `https://x.com/${author}/status/${statusId}` : location.href,
@@ -577,8 +589,13 @@
       statusId,
       text: (root?.querySelector('[data-testid="tweetText"]')?.innerText || '').trim().slice(0, 12000),
       media,
-      streamedVideo: Boolean(root?.querySelector('video'))
+      streamedVideo: Boolean(root?.querySelector('video')),
+      // Why nothing was found, shown in the popup if the embed service fails too.
+      diagnosis: !statusId ? 'not a post page' : !root ? 'post not found on the page' : !media.length ? 'no photos in the page' : ''
     };
+  }
+  function xMediaKey(url) {
+    return (url.match(/pbs\.twimg\.com\/media\/([^?.]+)/) || [])[1] || url;
   }
   function xOriginalImage(url) {
     try {

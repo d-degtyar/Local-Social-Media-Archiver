@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.5 — Unreleased
+
+- X: photo-only posts save again. The open post is found by its timestamp link, by X's focus marker, or by its photo links, so replies in threads and posts without a timestamp link work; photos painted only as a background image (behind content warnings) are found too. The embed service is read for photos as well, and when nothing is found the popup says why.
+- Stack posts in Eagle: an option in the popup. Posts with several files go into their own folder under "Social Stacks" and the first file is tagged "Main Cover"; single files get the tag without a folder. A smart folder filtered by that tag shows one tile per post.
+
 ## Telegram Sorter
 
 - Moved to its own repository, with its history: [d-degtyar/eagle-telegram-sorter](https://github.com/d-degtyar/eagle-telegram-sorter).

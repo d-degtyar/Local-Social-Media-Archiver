@@ -1,5 +1,9 @@
 const status = document.querySelector('#status');
 const lucky = document.querySelector('#i-feel-lucky');
+const stack = document.querySelector('#stack-posts');
+// A per-browser preference; the extension has no storage permission.
+try { stack.checked = localStorage.getItem('stackPosts') === '1'; } catch { /* private mode */ }
+stack.addEventListener('change', () => { try { localStorage.setItem('stackPosts', stack.checked ? '1' : '0'); } catch { /* ignore */ } });
 
 for (const button of document.querySelectorAll('button')) button.addEventListener('click', async () => {
   const destination = button.id === 'save-eagle' ? 'eagle' : 'downloads';
@@ -8,7 +12,7 @@ for (const button of document.querySelectorAll('button')) button.addEventListene
   try {
     if (lucky.checked) await requestCurrentSitePermission();
     else await requestXVideoPermission();
-    const result = await chrome.runtime.sendMessage({ type: 'ARCHIVE_ACTIVE_TAB', destination, universal: lucky.checked });
+    const result = await chrome.runtime.sendMessage({ type: 'ARCHIVE_ACTIVE_TAB', destination, universal: lucky.checked, stack: stack.checked });
     status.value = result.ok
       ? destination === 'eagle'
         ? `Added to Eagle: ${result.mediaCount} media.`
