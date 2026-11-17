@@ -1,18 +1,68 @@
 const status = document.querySelector('#status');
 const lucky = document.querySelector('#i-feel-lucky');
 const stack = document.querySelector('#stack-posts');
-// A per-browser preference; the extension has no storage permission.
-try { stack.checked = localStorage.getItem('stackPosts') === '1'; } catch { /* private mode */ }
+
+// Per-browser preferences; the extension has no storage permission.
+const prefs = {
+  get: key => { try { return localStorage.getItem(key); } catch { return null; } },
+  set: (key, value) => { try { localStorage.setItem(key, value); } catch { /* private mode */ } }
+};
+
+stack.checked = prefs.get('stackPosts') === '1';
 stack.addEventListener('change', () => {
-  try { localStorage.setItem('stackPosts', stack.checked ? '1' : '0'); } catch { /* ignore */ }
+  prefs.set('stackPosts', stack.checked ? '1' : '0');
   // The first time stacks are turned on, show the guide: they need a smart
   // folder in Eagle that only the user can create.
-  let seen = false;
-  try { seen = localStorage.getItem('stackGuideSeen') === '1'; localStorage.setItem('stackGuideSeen', '1'); } catch { /* ignore */ }
+  const seen = prefs.get('stackGuideSeen') === '1';
+  prefs.set('stackGuideSeen', '1');
   if (stack.checked && !seen) chrome.tabs.create({ url: chrome.runtime.getURL('stacks.html') });
 });
 
-for (const button of document.querySelectorAll('button')) button.addEventListener('click', async () => {
+// Help mode: the ? button shows a caption under each control, the supported
+// sites and the fine print. On until the user first turns it off.
+const helpButton = document.querySelector('#toggle-help');
+function setHelp(on) {
+  document.body.classList.toggle('help-on', on);
+  helpButton.setAttribute('aria-pressed', String(on));
+  helpButton.title = on ? 'Hide explanations' : 'Show explanations';
+}
+setHelp(prefs.get('helpMode') !== 'off');
+helpButton.addEventListener('click', () => {
+  const on = !document.body.classList.contains('help-on');
+  setHelp(on);
+  prefs.set('helpMode', on ? 'on' : 'off');
+});
+
+// What's new: the background marks the toolbar icon NEW after an update;
+// the popup shows this version's highlights until dismissed.
+const WHATS_NEW = {
+  '0.2.5': [
+    'A cleaner popup: press ? for explanations and the list of sites.',
+    'Photo-only posts from X save again.',
+    'Vimeo: cover and link, plus the video when its owner allows.',
+    'Stack posts in Eagle: one tile per post (see How stacks work).'
+  ]
+};
+(async () => {
+  let badge = '';
+  try { badge = await chrome.action.getBadgeText({}); } catch { /* older Chrome */ }
+  if (badge !== 'NEW') return;
+  const version = chrome.runtime.getManifest().version;
+  document.querySelector('#news-title').textContent = `What's new in ${version}`;
+  document.querySelector('#news-list').innerHTML = '';
+  for (const line of WHATS_NEW[version] || ['Improvements and fixes.']) {
+    const item = document.createElement('li');
+    item.textContent = line;
+    document.querySelector('#news-list').append(item);
+  }
+  document.querySelector('#whats-new').hidden = false;
+})();
+document.querySelector('#dismiss-news').addEventListener('click', () => {
+  document.querySelector('#whats-new').hidden = true;
+  chrome.action.setBadgeText({ text: '' });
+});
+
+for (const button of document.querySelectorAll('button.save')) button.addEventListener('click', async () => {
   const destination = button.id === 'save-eagle' ? 'eagle' : 'downloads';
   setDisabled(true);
   status.value = 'Collecting media from tab...';
@@ -41,7 +91,7 @@ function downloadSummary({ mediaCount, pending, failed, renamed, note }) {
   return lines.join('\n');
 }
 
-function setDisabled(disabled) { document.querySelectorAll('button').forEach(button => { button.disabled = disabled; }); }
+function setDisabled(disabled) { document.querySelectorAll('button.save').forEach(button => { button.disabled = disabled; }); }
 
 // Videos on X and Vimeo need another host (X's embed service, the Vimeo player); ask once, on the first save there.
 // Declining still saves the post's photos.

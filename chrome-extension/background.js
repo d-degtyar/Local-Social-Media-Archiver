@@ -37,6 +37,14 @@ function asciiPath(path) {
   }).join('/');
 }
 
+// After an update, mark the toolbar icon so the change is visible; the popup
+// shows what is new and clears the mark when dismissed.
+chrome.runtime.onInstalled.addListener(({ reason }) => {
+  if (reason !== 'update') return;
+  chrome.action.setBadgeText({ text: 'NEW' });
+  chrome.action.setBadgeBackgroundColor({ color: '#e0161f' });
+});
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type !== 'ARCHIVE_ACTIVE_TAB') return;
   archiveActiveTab(message.destination, message.universal === true, message.stack === true).then(sendResponse).catch(error => sendResponse({ ok: false, error: error.message }));
