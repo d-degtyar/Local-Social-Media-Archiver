@@ -240,7 +240,10 @@ async function addXEmbedMedia(post) {
 // reference. Optional permission, asked by the popup on the first Vimeo save.
 const VIMEO_PLAYER_ORIGIN = 'https://player.vimeo.com/*';
 async function addVimeoVideo(post) {
-  const { id, hash, downloadButton, configUrl } = post.vimeo;
+  const { id, hash, downloadButton, configUrl, downloads } = post.vimeo;
+  // Files from the Download button are, by definition, ones the owner allows.
+  const offered = (downloads || []).slice().sort((a, b) => (b.width || 0) - (a.width || 0))[0];
+  if (offered) { post.media = [...post.media, { url: offered.url, kind: 'video' }]; return; }
   // The page read the player config already (see vimeoPlayerConfig); only if
   // it could not, try from here.
   let { configStatus, allowDownload, progressive, owner } = post.vimeo;

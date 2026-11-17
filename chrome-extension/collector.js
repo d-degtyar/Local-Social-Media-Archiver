@@ -29,11 +29,15 @@
     // post JSON (the Instagram media format) is the only source of the MP4.
     const threadsPost = platform === 'threads' ? threadsPostData() : null;
     let threadsMedia = threadsPost ? mediaFromInstagramNode(threadsPost) : [];
-    // media_type 2 is a video. If its data lists no file, fall back to the
-    // player's own source or the MP4 the page downloaded.
-    if (threadsPost && Number(threadsPost.media_type) === 2 && !threadsMedia.some(item => item.kind === 'video')) {
-      const video = observedInstagramVideo();
-      if (video.length) threadsMedia = video;
+    let threadsNote = '';
+    // The page data may describe a video post by its cover only. When the
+    // post has a player (or the data says video, media_type 2), take the file
+    // from the player or from what the page downloaded instead of the cover.
+    if (threadsPost && !threadsMedia.some(item => item.kind === 'video')
+      && (Number(threadsPost.media_type) === 2 || root?.querySelector('video'))) {
+      const video = threadsVideoFromPage(root);
+      if (video) threadsMedia = threadsMedia.length <= 1 ? [video] : [...threadsMedia, video];
+      else threadsNote = 'Only the cover was found: play the video for a second, then save again.';
     }
     // Do not add a network fallback when the structured Instagram data already
     // supplied a video: it is commonly a byte-range copy of the same Reel.
@@ -77,7 +81,8 @@
       media: merged,
       // blob: and MediaSource streams cannot be downloaded by URL. Report them
       // so the popup can explain why a visible video was not saved.
-      streamedVideo: !merged.some(item => item.kind === 'video') && hasStreamedVideo(root)
+      streamedVideo: !merged.some(item => item.kind === 'video') && hasStreamedVideo(root),
+      note: merged.some(item => item.kind === 'video') ? '' : threadsNote
     };
   }
 
@@ -288,6 +293,22 @@
     if (!Array.isArray(variants)) return null;
     return variants.filter(item => item && /^https?:/i.test(item.url || ''))
       .sort((a, b) => ((b.width || 0) * (b.height || 0)) - ((a.width || 0) * (a.height || 0)))[0] || null;
+  }
+  function threadsVideoFromPage(root) {
+    const fromPlayer = [...(root || document).querySelectorAll('video')]
+      .flatMap(video => [video.currentSrc, video.src, ...[...video.querySelectorAll('source')].map(source => source.src)])
+      .find(url => /^https:/i.test(url || ''));
+    if (fromPlayer) return { url: fromPlayer, kind: 'video' };
+    // A streamed player fetches the MP4 in byte ranges; without the range
+    // parameters the same address serves the whole file.
+    const entry = performance.getEntriesByType('resource')
+      .filter(item => /(?:cdninstagram|fbcdn)\./i.test(item.name) && /\.mp4(?:\?|$)/i.test(item.name))
+      .sort((a, b) => (b.transferSize || b.encodedBodySize || 0) - (a.transferSize || a.encodedBodySize || 0))[0];
+    if (!entry) return null;
+    const url = new URL(entry.name);
+    url.searchParams.delete('bytestart');
+    url.searchParams.delete('byteend');
+    return { url: url.href, kind: 'video' };
   }
   function observedInstagramVideo() {
     const directVideo = [...document.querySelectorAll('video')]
@@ -619,7 +640,7 @@
       text: [title, (info?.description || '').trim()].filter(Boolean).join('\n\n').slice(0, 12000),
       media: cover ? [{ url: cover, kind: 'image' }] : [],
       streamedVideo: false,
-      vimeo: videoId ? { id: videoId, hash, downloadButton: vimeoDownloadButton(), configUrl: vimeoConfigUrl(), ...(await vimeoPlayerConfig(videoId, hash)) } : null
+      vimeo: videoId ? { id: videoId, hash, downloadButton: vimeoDownloadButton(), configUrl: vimeoConfigUrl(), downloads: await vimeoDownloads(videoId, hash), ...(await vimeoPlayerConfig(videoId, hash)) } : null
     };
   }
   async function vimeoCover(url) {
@@ -628,6 +649,28 @@
     const large = url.replace(/_\d+(?:x\d+)?(\.\w+)?(\?.*)?$/, '_1920$1');
     if (large !== url && await imageLoads(large)) return large;
     return url;
+  }
+  // The files the owner allows to download: the list behind the page's
+  // Download button (links to player.vimeo.com/progressive_redirect/download/…).
+  async function vimeoDownloads(videoId, hash) {
+    const files = [];
+    try {
+      const response = await fetch(`/${videoId}${hash ? `/${hash}` : ''}?action=load_download_config`, {
+        credentials: 'include', headers: { 'X-Requested-With': 'XMLHttpRequest', Accept: 'application/json' }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        for (const file of data?.files || []) {
+          const url = file.download_url || file.link || file.url;
+          if (/^https:/.test(url || '') && !/\.m3u8/i.test(url)) files.push({ url, width: Number(file.width) || parseInt(file.public_name || file.quality || '', 10) || 0 });
+        }
+      }
+    } catch { /* fall back to links already on the page */ }
+    // The Download dialog, if open, lists the same links.
+    for (const link of document.querySelectorAll('a[href*="progressive_redirect/download"], a[href*="/download/"][href*="vimeo"]')) {
+      files.push({ url: link.href, width: parseInt((link.textContent.match(/(\d{3,4})p/) || [])[1], 10) || parseInt((decodeURIComponent(link.href).match(/\((\d{3,4})p\)/) || [])[1], 10) || 0 });
+    }
+    return [...new Map(files.map(file => [file.url, file])).values()];
   }
   // Vimeo answers the player config only to requests from its own pages (its
   // cookies and referrer), so read it here, in the page, as the player does.
