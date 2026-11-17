@@ -51,11 +51,14 @@ async function archiveActiveTab(destination = 'downloads', universal = false, st
   await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['collector.js'] });
   const post = await chrome.tabs.sendMessage(tab.id, { type: 'COLLECT_POST' });
   if (post?.platform === 'x' && post.statusId) await addXEmbedMedia(post);
+  if (post?.platform === 'vimeo' && post.vimeo) await addVimeoVideo(post);
   if (!post?.media?.length) {
     return {
       ok: false,
       error: post?.platform === 'x' && !post.streamedVideo
         ? `No photos found in this X post (${[post.diagnosis, post.embedStatus].filter(Boolean).join('; ') || 'unknown reason'}). If the post shows a content warning, click Show and retry.`
+        : post?.platform === 'vimeo'
+        ? 'Open a Vimeo video page to save its cover as a reference.'
         : post?.platform === 'youtube'
         ? 'Open a YouTube video or Short to save its cover as a reference.'
         : post?.platform === 'x' && post.streamedVideo
@@ -67,7 +70,7 @@ async function archiveActiveTab(destination = 'downloads', universal = false, st
   }
 
   const uniqueMedia = [...new Map(post.media.map(item => [item.url, item])).values()];
-  if (destination === 'eagle') return saveToEagle(post, uniqueMedia, stack);
+  if (destination === 'eagle') return { ...(await saveToEagle(post, uniqueMedia, stack)), note: post.note || '' };
 
   // One flat folder, no subfolder per post. Every file of a post shares a base
   // name, so they sort together and never overwrite another post's files:
@@ -100,7 +103,7 @@ async function archiveActiveTab(destination = 'downloads', universal = false, st
   const mediaCount = count('complete');
   const failed = count('interrupted');
   if (failed === uniqueMedia.length) return { ok: false, error: 'Downloads failed. Media links may have expired: reload the page and retry.' };
-  return { ok: true, mediaCount, pending: count('in_progress'), failed, renamed: await renamedByAnotherExtension(ids) };
+  return { ok: true, mediaCount, pending: count('in_progress'), failed, renamed: await renamedByAnotherExtension(ids), note: post.note || '' };
 }
 
 // Chrome lets the most recently installed extension that listens to
@@ -215,6 +218,29 @@ async function addXEmbedMedia(post) {
   } catch (error) { post.embedStatus = `embed service failed: ${error.message}`; }
 }
 
+// Vimeo: the player's config lists progressive MP4 files when there are
+// any. The video is saved only when the owner allows downloads (the page's
+// Download button, or the config saying so); otherwise the card stays a
+// reference. Optional permission, asked by the popup on the first Vimeo save.
+const VIMEO_PLAYER_ORIGIN = 'https://player.vimeo.com/*';
+async function addVimeoVideo(post) {
+  const { id, hash, downloadButton } = post.vimeo;
+  try {
+    if (!await chrome.permissions.contains({ origins: [VIMEO_PLAYER_ORIGIN] })) { post.note = 'Video not saved: no access to the Vimeo player.'; return; }
+    const response = await fetch(`https://player.vimeo.com/video/${id}/config${hash ? `?h=${hash}` : ''}`);
+    if (!response.ok) { post.note = `Video not saved: Vimeo answered HTTP ${response.status}.`; return; }
+    const config = await response.json();
+    const allowed = downloadButton || config.video?.allow_download === true;
+    if (!allowed) { post.note = 'Video not saved: the owner has not enabled downloads. Saved as a reference.'; return; }
+    const best = (config.request?.files?.progressive || [])
+      .filter(file => /^https:/.test(file.url || ''))
+      .sort((a, b) => (b.width || 0) - (a.width || 0))[0];
+    if (!best) { post.note = 'Video not saved: Vimeo only streams this video. Saved as a reference.'; return; }
+    post.media = [...post.media, { url: best.url, kind: 'video' }];
+    if (!post.author && config.video?.owner?.name) post.author = config.video.owner.name;
+  } catch (error) { post.note = `Video not saved: ${error.message}`; }
+}
+
 async function eagleRequest(path, options) {
   let response;
   try { response = await fetch(`http://localhost:41595${path}`, options); }
@@ -228,7 +254,7 @@ async function eagleRequest(path, options) {
 function isSupported(url) {
   try {
     const host = new URL(url).hostname;
-    return ['www.instagram.com', 'www.threads.com', 'www.threads.net', 'www.linkedin.com', 'x.com', 'twitter.com', 'mobile.x.com', 'mobile.twitter.com', 'www.youtube.com', 'youtube.com', 'm.youtube.com'].includes(host)
+    return ['www.instagram.com', 'www.threads.com', 'www.threads.net', 'www.linkedin.com', 'x.com', 'twitter.com', 'mobile.x.com', 'mobile.twitter.com', 'www.youtube.com', 'youtube.com', 'm.youtube.com', 'vimeo.com', 'www.vimeo.com', 'player.vimeo.com'].includes(host)
       || host.endsWith('reddit.com')
       || /(^|\.)pinterest\.(com|[a-z]{2}|co\.[a-z]{2}|com\.[a-z]{2})$/.test(host);
   } catch { return false; }
@@ -273,7 +299,7 @@ function postSummary(post, filenames) {
     `Files: ${filenames.join(', ')}`
   ].filter(Boolean).join('\n') + '\n';
 }
-const PLATFORM_NAMES = { instagram: 'Instagram', threads: 'Threads', linkedin: 'LinkedIn', reddit: 'Reddit', pinterest: 'Pinterest', x: 'X', youtube: 'YouTube', web: 'Web' };
+const PLATFORM_NAMES = { instagram: 'Instagram', threads: 'Threads', linkedin: 'LinkedIn', reddit: 'Reddit', pinterest: 'Pinterest', x: 'X', youtube: 'YouTube', vimeo: 'Vimeo', web: 'Web' };
 function postKind(url) {
   try {
     const path = new URL(url).pathname;
@@ -281,6 +307,7 @@ function postKind(url) {
     if (/\/(?:reel|reels)\//.test(path)) return 'Reel';
     if (/^\/pin\//.test(path)) return 'pin';
     if (/^\/shorts\//.test(path)) return 'Short';
+    if (/(?:^|\/)\d{6,}(?:\/|$)/.test(path) && /vimeo\.com$/.test(new URL(url).hostname)) return 'video';
     if (/^\/(?:watch|live)\b/.test(path)) return 'video';
     if (/\/(?:p|post|posts|comments|feed\/update|status)\//.test(path)) return 'post';
   } catch { /* fall through */ }

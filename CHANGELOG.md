@@ -2,6 +2,7 @@
 
 ## 0.2.5 — Unreleased
 
+- Vimeo: videos save as reference cards like YouTube (largest cover, title, author, description, link). The MP4 is added when the owner allows downloads (the page's Download button or the player config) and Vimeo serves a progressive file; otherwise the popup says why only the card was saved.
 - X: photo-only posts save again. The open post is found by its timestamp link, by X's focus marker, or by its photo links, so replies in threads and posts without a timestamp link work; photos painted only as a background image (behind content warnings) are found too. The embed service is read for photos as well, and when nothing is found the popup says why.
 - Stack posts in Eagle: an option in the popup. Posts with several files go into their own folder under "Social Stacks" and the first file is tagged "Main Cover"; single files get the tag without a folder. A smart folder filtered by that tag shows one tile per post.
 

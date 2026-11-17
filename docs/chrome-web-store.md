@@ -37,6 +37,7 @@ Save images and videos from the post you're viewing to Eagle or your Downloads f
 > • Pinterest pins at original size, including videos and idea pins: only the open pin, never related or promoted pins
 > • X (Twitter) photos at original size and videos
 > • YouTube: saves a video's cover image with its title, channel, and link as a reference. The video itself is not downloaded.
+> • Vimeo: the same reference card, plus the video file when its owner allows downloads
 > • "I feel lucky": try any other site, with permission requested only for that site
 >
 > Private by design. No account, no server, no analytics. The extension works with your existing browser session and talks to Eagle only through its local API on your computer.
@@ -76,7 +77,7 @@ Save the media from the post in the current tab (images, carousels, videos, and 
 | Host permissions (instagram.com, threads.com/net, linkedin.com, reddit.com) | Reads post pages on the supported sites so the collector can find every carousel item and the post's video source. |
 | Host permissions (cdninstagram.com, fbcdn.net, licdn.com, redd.it) | Downloads the media files from the sites' own media servers with the user's existing session. |
 | Host permission (localhost:41595) | Sends the saved items to the Eagle desktop app's local API on the user's own computer. Nothing is sent over the internet. |
-| Optional host permissions (`http://*/*`, `https://*/*`) | Requested at runtime for a single site only: when the user turns on "I feel lucky" to save media from a site that is not supported by default, and `cdn.syndication.twimg.com` the first time the user saves from X, to get a downloadable video file for the open post. |
+| Optional host permissions (`http://*/*`, `https://*/*`) | Requested at runtime for a single site only: when the user turns on "I feel lucky" to save media from a site that is not supported by default, `cdn.syndication.twimg.com` the first time the user saves from X, to get a downloadable video file for the open post, and `player.vimeo.com` the first time the user saves from Vimeo, to find the video file when its owner allows downloads. |
 
 **Remote code:** No, I am not using remote code. All scripts are included in the package.
 

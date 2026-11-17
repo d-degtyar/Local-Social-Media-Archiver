@@ -14,6 +14,7 @@
     if (platform === 'pinterest') return collectPinterestPin();
     if (platform === 'x') return collectXPost();
     if (platform === 'youtube') return collectYouTubeVideo();
+    if (platform === 'vimeo') return collectVimeoVideo();
     const root = findPostRoot(platform);
     // Deliberately collect only elements rendered inside the post. A previous
     // performance-resource fallback also picked up feed previews and avatars.
@@ -80,6 +81,7 @@
     // Exact hosts for X: a substring test for "x.com" would match netflix.com.
     if (['x.com', 'www.x.com', 'mobile.x.com', 'twitter.com', 'www.twitter.com', 'mobile.twitter.com'].includes(host)) return 'x';
     if (['www.youtube.com', 'youtube.com', 'm.youtube.com'].includes(host)) return 'youtube';
+    if (['vimeo.com', 'www.vimeo.com', 'player.vimeo.com'].includes(host)) return 'vimeo';
     if (/(^|\.)pinterest\.(com|[a-z]{2}|co\.[a-z]{2}|com\.[a-z]{2})$/.test(host)) return 'pinterest';
     if (host.includes('instagram')) return 'instagram';
     if (host.includes('threads')) return 'threads';
@@ -552,6 +554,48 @@
       image.onerror = () => { clearTimeout(timer); resolve(false); };
       image.src = url;
     });
+  }
+
+  // Vimeo -------------------------------------------------------------------
+  // A reference card like YouTube: cover, title, author, description, link.
+  // The background script adds the MP4 only when the owner allows downloads.
+  async function collectVimeoVideo() {
+    const match = location.pathname.match(/(?:^|\/)(\d{6,})(?:\/([0-9a-f]{6,}))?(?:\/|$)/);
+    const videoId = match?.[1] || '';
+    const hash = match?.[2] || new URLSearchParams(location.search).get('h') || '';
+    const pageUrl = videoId ? `https://vimeo.com/${videoId}${hash ? `/${hash}` : ''}` : location.href;
+    let info = null;
+    if (videoId) {
+      try {
+        const response = await fetch(`https://vimeo.com/api/oembed.json?url=${encodeURIComponent(pageUrl)}&width=1920`);
+        if (response.ok) info = await response.json();
+      } catch { /* fall back to the page */ }
+    }
+    const title = (info?.title || document.querySelector('meta[property="og:title"]')?.content || document.title.replace(/\s+on Vimeo$/, '')).trim();
+    const cover = await vimeoCover(info?.thumbnail_url || document.querySelector('meta[property="og:image"]')?.content || '');
+    return {
+      platform: 'vimeo',
+      url: pageUrl,
+      title,
+      headline: title,
+      author: String(info?.author_name || '').slice(0, 80),
+      text: [title, (info?.description || '').trim()].filter(Boolean).join('\n\n').slice(0, 12000),
+      media: cover ? [{ url: cover, kind: 'image' }] : [],
+      streamedVideo: false,
+      vimeo: videoId ? { id: videoId, hash, downloadButton: vimeoDownloadButton() } : null
+    };
+  }
+  async function vimeoCover(url) {
+    if (!/^https?:/i.test(url)) return '';
+    // Thumbnail URLs end in a size (_640, _295x166); ask for 1920 first.
+    const large = url.replace(/_\d+(?:x\d+)?(\.\w+)?(\?.*)?$/, '_1920$1');
+    if (large !== url && await imageLoads(large)) return large;
+    return url;
+  }
+  function vimeoDownloadButton() {
+    // Shown only when the owner allows downloads.
+    return [...document.querySelectorAll('button, a')].some(element =>
+      /^download$/i.test((element.getAttribute('aria-label') || element.textContent || '').trim()));
   }
 
   // X / Twitter -------------------------------------------------------------
