@@ -240,9 +240,12 @@ async function addXEmbedMedia(post) {
 // reference. Optional permission, asked by the popup on the first Vimeo save.
 const VIMEO_PLAYER_ORIGIN = 'https://player.vimeo.com/*';
 async function addVimeoVideo(post) {
-  const { id, hash, downloadButton, configUrl, downloads } = post.vimeo;
+  const { id, hash, downloadButton, configUrl, downloads, downloadSteps } = post.vimeo;
   // Files from the Download button are, by definition, ones the owner allows.
-  const offered = (downloads || []).slice().sort((a, b) => (b.width || 0) - (a.width || 0))[0];
+  // Prefer the largest rendition; the original upload ("source") only when
+  // it is all there is, as it can be very large.
+  const offered = (downloads || []).slice()
+    .sort((a, b) => (a.source ? 1 : 0) - (b.source ? 1 : 0) || (b.width || 0) - (a.width || 0))[0];
   if (offered) { post.media = [...post.media, { url: offered.url, kind: 'video' }]; return; }
   // The page read the player config already (see vimeoPlayerConfig); only if
   // it could not, try from here.
@@ -259,9 +262,9 @@ async function addVimeoVideo(post) {
       }
     }
     if (configStatus !== 200) {
-      post.note = configStatus === 403
-        ? 'Video not saved: Vimeo keeps this video\'s files private (embed-only or restricted). Saved as a reference.'
-        : `Video not saved: Vimeo answered ${configStatus ? `HTTP ${configStatus}` : 'nothing'}.`;
+      post.note = downloadButton
+        ? `Video not saved: Vimeo did not hand over the download links (${downloadSteps || 'no answer'}). Open the Download dialog on the page and save again. Saved as a reference.`
+        : 'Video not saved: no Download button on this video, so its owner has not allowed downloads. Saved as a reference.';
       return;
     }
     if (!downloadButton && !allowDownload) { post.note = 'Video not saved: the owner has not enabled downloads. Saved as a reference.'; return; }

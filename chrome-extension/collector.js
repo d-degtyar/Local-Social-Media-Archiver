@@ -640,7 +640,7 @@
       text: [title, (info?.description || '').trim()].filter(Boolean).join('\n\n').slice(0, 12000),
       media: cover ? [{ url: cover, kind: 'image' }] : [],
       streamedVideo: false,
-      vimeo: videoId ? { id: videoId, hash, downloadButton: vimeoDownloadButton(), configUrl: vimeoConfigUrl(), downloads: await vimeoDownloads(videoId, hash), ...(await vimeoPlayerConfig(videoId, hash)) } : null
+      vimeo: videoId ? { id: videoId, hash, downloadButton: vimeoDownloadButton(), configUrl: vimeoConfigUrl(), ...(await vimeoDownloads(videoId, hash).then(result => ({ downloads: result.files, downloadSteps: result.steps }))), ...(await vimeoPlayerConfig(videoId, hash)) } : null
     };
   }
   async function vimeoCover(url) {
@@ -650,27 +650,51 @@
     if (large !== url && await imageLoads(large)) return large;
     return url;
   }
-  // The files the owner allows to download: the list behind the page's
-  // Download button (links to player.vimeo.com/progressive_redirect/download/…).
+  // The files the owner allows to download: what the page's Download button
+  // lists. Vimeo's site gets them from its API (the video's "download"
+  // field) with a short-lived token for the signed-in viewer; do the same.
+  // Older pages answered ?action=load_download_config; an open Download
+  // dialog lists the links too.
   async function vimeoDownloads(videoId, hash) {
     const files = [];
+    const steps = [];
     try {
-      const response = await fetch(`/${videoId}${hash ? `/${hash}` : ''}?action=load_download_config`, {
-        credentials: 'include', headers: { 'X-Requested-With': 'XMLHttpRequest', Accept: 'application/json' }
-      });
-      if (response.ok) {
-        const data = await response.json();
-        for (const file of data?.files || []) {
-          const url = file.download_url || file.link || file.url;
-          if (/^https:/.test(url || '') && !/\.m3u8/i.test(url)) files.push({ url, width: Number(file.width) || parseInt(file.public_name || file.quality || '', 10) || 0 });
+      const viewer = await fetch('/_next/viewer', { credentials: 'include', headers: { Accept: 'application/json' } });
+      const jwt = viewer.ok ? (await viewer.json())?.jwt : '';
+      steps.push(`viewer ${viewer.status}${jwt ? '' : ' (no token)'}`);
+      if (jwt) {
+        const api = await fetch(`https://api.vimeo.com/videos/${videoId}${hash ? `:${hash}` : ''}?fields=download`, {
+          headers: { Authorization: `jwt ${jwt}`, Accept: 'application/vnd.vimeo.*+json;version=3.4.10' }
+        });
+        steps.push(`api ${api.status}`);
+        if (api.ok) {
+          for (const file of (await api.json())?.download || []) {
+            if (/^https:/.test(file?.link || '') && file.quality !== 'hls') {
+              files.push({ url: file.link, width: Number(file.width) || 0, source: file.quality === 'source' });
+            }
+          }
         }
       }
-    } catch { /* fall back to links already on the page */ }
-    // The Download dialog, if open, lists the same links.
-    for (const link of document.querySelectorAll('a[href*="progressive_redirect/download"], a[href*="/download/"][href*="vimeo"]')) {
+    } catch (error) { steps.push(`api failed: ${error.message}`); }
+    if (!files.length) {
+      try {
+        const response = await fetch(`/${videoId}${hash ? `/${hash}` : ''}?action=load_download_config`, {
+          credentials: 'include', headers: { 'X-Requested-With': 'XMLHttpRequest', Accept: 'application/json' }
+        });
+        steps.push(`download config ${response.status}`);
+        if (response.ok && /json/.test(response.headers.get('content-type') || '')) {
+          for (const file of (await response.json())?.files || []) {
+            const url = file.download_url || file.link || file.url;
+            if (/^https:/.test(url || '') && !/\.m3u8/i.test(url)) files.push({ url, width: Number(file.width) || parseInt(file.public_name || file.quality || '', 10) || 0 });
+          }
+        }
+      } catch { /* try the dialog */ }
+    }
+    for (const link of document.querySelectorAll('a[href*="progressive_redirect/download"]')) {
       files.push({ url: link.href, width: parseInt((link.textContent.match(/(\d{3,4})p/) || [])[1], 10) || parseInt((decodeURIComponent(link.href).match(/\((\d{3,4})p\)/) || [])[1], 10) || 0 });
     }
-    return [...new Map(files.map(file => [file.url, file])).values()];
+    const unique = [...new Map(files.map(file => [file.url, file])).values()];
+    return { files: unique, steps: steps.join(', ') };
   }
   // Vimeo answers the player config only to requests from its own pages (its
   // cookies and referrer), so read it here, in the page, as the player does.
