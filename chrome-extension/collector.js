@@ -244,9 +244,18 @@
     return match?.[1] || '936619743392459';
   }
   function threadsPostData() {
-    // /@username/post/<code>; the code identifies the post like an Instagram shortcode.
-    const code = (location.pathname.match(/\/post\/([A-Za-z0-9_-]+)/) || [])[1];
+    const code = threadsPostCode();
     return code ? postFromPageJson(code) : null;
+  }
+  // /@username/post/<code>; the code identifies the post like an Instagram
+  // shortcode. Share links (/share/<id>) carry no code: read it from the
+  // page's canonical address instead.
+  function threadsPostCode() {
+    const fromPath = (path) => (String(path || '').match(/\/post\/([A-Za-z0-9_-]+)/) || [])[1] || '';
+    return fromPath(location.pathname)
+      || fromPath(document.querySelector('link[rel="canonical"]')?.href)
+      || fromPath(document.querySelector('meta[property="og:url"]')?.content)
+      || fromPath(document.querySelector('meta[property="al:android:url"], meta[property="al:ios:url"]')?.content);
   }
   function instagramShortcode() {
     const parts = location.pathname.split('/').filter(Boolean);
@@ -610,7 +619,7 @@
       text: [title, (info?.description || '').trim()].filter(Boolean).join('\n\n').slice(0, 12000),
       media: cover ? [{ url: cover, kind: 'image' }] : [],
       streamedVideo: false,
-      vimeo: videoId ? { id: videoId, hash, downloadButton: vimeoDownloadButton(), configUrl: vimeoConfigUrl() } : null
+      vimeo: videoId ? { id: videoId, hash, downloadButton: vimeoDownloadButton(), configUrl: vimeoConfigUrl(), ...(await vimeoPlayerConfig(videoId, hash)) } : null
     };
   }
   async function vimeoCover(url) {
@@ -619,6 +628,24 @@
     const large = url.replace(/_\d+(?:x\d+)?(\.\w+)?(\?.*)?$/, '_1920$1');
     if (large !== url && await imageLoads(large)) return large;
     return url;
+  }
+  // Vimeo answers the player config only to requests from its own pages (its
+  // cookies and referrer), so read it here, in the page, as the player does.
+  async function vimeoPlayerConfig(videoId, hash) {
+    const url = vimeoConfigUrl() || `https://player.vimeo.com/video/${videoId}/config${hash ? `?h=${hash}` : ''}`;
+    try {
+      const response = await fetch(url, { credentials: 'include' });
+      if (!response.ok) return { configStatus: response.status };
+      const config = await response.json();
+      return {
+        configStatus: 200,
+        allowDownload: config.video?.allow_download === true,
+        progressive: (config.request?.files?.progressive || [])
+          .filter(file => /^https:/.test(file?.url || ''))
+          .map(file => ({ url: file.url, width: file.width || 0 })),
+        owner: config.video?.owner?.name || ''
+      };
+    } catch { return { configStatus: 0 }; }
   }
   // The player-config URL in the page is signed; without the signature many
   // videos answer 403.

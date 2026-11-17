@@ -5,7 +5,8 @@
 - Popup opens compact for new users; ? shows the explanations.
 - LinkedIn: videos save as video, not as their poster frame. /feed/update/urn:li:activity:… links now use the post's embed page, and the MP4 comes from the player's data-sources or the page's progressiveStreams data, so the video need not have been played.
 - Threads: when a page describes a post more than once (a preview with only the cover, and the full post), the richest one is used, so videos are no longer saved as their cover; a video post without a listed file falls back to the player's own source.
-- Vimeo: uses the signed player-config URL from the page, which many videos require; a 403 now says the video's files are private or embed-only.
+- Vimeo: the player config is read from the video page itself, with Vimeo's cookies and referrer, as the player does (Vimeo refused it from the background with 403); the signed config URL in the page is used when present. A 403 that remains means the files are private or embed-only.
+- Threads: share links (threads.com/share/…) find the post through the page's canonical address, so their videos save as video.
 - YouTube and Vimeo covers are named "<title> (cover)" in Eagle, so Eagle no longer offers to replace an already saved video with its cover.
 - Stacks: the very first stacked post no longer lands outside Social Stacks when Eagle's folder-create answer carries no id.
 - Stacks guide matches Eagle's wording: New Smart Folder, rule Tags · Any · Main Cover, and the Folders section of the right-hand panel.

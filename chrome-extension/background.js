@@ -241,24 +241,31 @@ async function addXEmbedMedia(post) {
 const VIMEO_PLAYER_ORIGIN = 'https://player.vimeo.com/*';
 async function addVimeoVideo(post) {
   const { id, hash, downloadButton, configUrl } = post.vimeo;
+  // The page read the player config already (see vimeoPlayerConfig); only if
+  // it could not, try from here.
+  let { configStatus, allowDownload, progressive, owner } = post.vimeo;
   try {
-    if (!await chrome.permissions.contains({ origins: [VIMEO_PLAYER_ORIGIN] })) { post.note = 'Video not saved: no access to the Vimeo player.'; return; }
-    const response = await fetch(configUrl || `https://player.vimeo.com/video/${id}/config${hash ? `?h=${hash}` : ''}`);
-    if (!response.ok) {
-      post.note = response.status === 403
+    if (configStatus !== 200 && await chrome.permissions.contains({ origins: [VIMEO_PLAYER_ORIGIN] })) {
+      const response = await fetch(configUrl || `https://player.vimeo.com/video/${id}/config${hash ? `?h=${hash}` : ''}`);
+      configStatus = response.status;
+      if (response.ok) {
+        const config = await response.json();
+        allowDownload = config.video?.allow_download === true;
+        progressive = (config.request?.files?.progressive || []).filter(file => /^https:/.test(file?.url || ''));
+        owner = config.video?.owner?.name || '';
+      }
+    }
+    if (configStatus !== 200) {
+      post.note = configStatus === 403
         ? 'Video not saved: Vimeo keeps this video\'s files private (embed-only or restricted). Saved as a reference.'
-        : `Video not saved: Vimeo answered HTTP ${response.status}.`;
+        : `Video not saved: Vimeo answered ${configStatus ? `HTTP ${configStatus}` : 'nothing'}.`;
       return;
     }
-    const config = await response.json();
-    const allowed = downloadButton || config.video?.allow_download === true;
-    if (!allowed) { post.note = 'Video not saved: the owner has not enabled downloads. Saved as a reference.'; return; }
-    const best = (config.request?.files?.progressive || [])
-      .filter(file => /^https:/.test(file.url || ''))
-      .sort((a, b) => (b.width || 0) - (a.width || 0))[0];
+    if (!downloadButton && !allowDownload) { post.note = 'Video not saved: the owner has not enabled downloads. Saved as a reference.'; return; }
+    const best = (progressive || []).slice().sort((a, b) => (b.width || 0) - (a.width || 0))[0];
     if (!best) { post.note = 'Video not saved: Vimeo only streams this video. Saved as a reference.'; return; }
     post.media = [...post.media, { url: best.url, kind: 'video' }];
-    if (!post.author && config.video?.owner?.name) post.author = config.video.owner.name;
+    if (!post.author && owner) post.author = owner;
   } catch (error) { post.note = `Video not saved: ${error.message}`; }
 }
 
