@@ -3,7 +3,14 @@ const lucky = document.querySelector('#i-feel-lucky');
 const stack = document.querySelector('#stack-posts');
 // A per-browser preference; the extension has no storage permission.
 try { stack.checked = localStorage.getItem('stackPosts') === '1'; } catch { /* private mode */ }
-stack.addEventListener('change', () => { try { localStorage.setItem('stackPosts', stack.checked ? '1' : '0'); } catch { /* ignore */ } });
+stack.addEventListener('change', () => {
+  try { localStorage.setItem('stackPosts', stack.checked ? '1' : '0'); } catch { /* ignore */ }
+  // The first time stacks are turned on, show the guide: they need a smart
+  // folder in Eagle that only the user can create.
+  let seen = false;
+  try { seen = localStorage.getItem('stackGuideSeen') === '1'; localStorage.setItem('stackGuideSeen', '1'); } catch { /* ignore */ }
+  if (stack.checked && !seen) chrome.tabs.create({ url: chrome.runtime.getURL('stacks.html') });
+});
 
 for (const button of document.querySelectorAll('button')) button.addEventListener('click', async () => {
   const destination = button.id === 'save-eagle' ? 'eagle' : 'downloads';

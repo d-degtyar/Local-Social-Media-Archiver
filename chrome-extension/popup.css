@@ -16,3 +16,5 @@ output { min-height: 20px; white-space: pre-line; }
 .support a { color: #777; text-decoration: none; }
 .support a:first-child { color: #e0161f; font-weight: 600; }
 .support a:hover { text-decoration: underline; }
+.help-link { margin: -6px 0 0 24px; color: #e0161f; font-size: 12.5px; text-decoration: none; }
+.help-link:hover { text-decoration: underline; }
