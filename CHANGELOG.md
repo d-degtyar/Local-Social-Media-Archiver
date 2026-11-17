@@ -9,6 +9,7 @@
 - Threads: share links (threads.com/share/…) find the post through the page's canonical address, so their videos save as video.
 - Vimeo: the video comes from the same list as the page's Download button: the video's `download` field in Vimeo's API, read with the short-lived token Vimeo gives the signed-in viewer (the files the owner allows; the largest rendition, the original upload only when it is the only one). Older pages' download config and an open Download dialog are fallbacks; when all fail, the popup lists which step refused.
 - Threads: when the page data has only a video post's cover, the file is taken from the post's player or from what the page already downloaded; if the video was never played, the popup suggests playing it for a second and saving again.
+- Vimeo: when the video is saved, it replaces the cover instead of sitting next to it; the cover is saved only when the video cannot be.
 - YouTube and Vimeo covers are named "<title> (cover)" in Eagle, so Eagle no longer offers to replace an already saved video with its cover.
 - Stacks: the very first stacked post no longer lands outside Social Stacks when Eagle's folder-create answer carries no id.
 - Stacks guide matches Eagle's wording: New Smart Folder, rule Tags · Any · Main Cover, and the Folders section of the right-hand panel.

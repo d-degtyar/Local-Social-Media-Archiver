@@ -246,7 +246,9 @@ async function addVimeoVideo(post) {
   // it is all there is, as it can be very large.
   const offered = (downloads || []).slice()
     .sort((a, b) => (a.source ? 1 : 0) - (b.source ? 1 : 0) || (b.width || 0) - (a.width || 0))[0];
-  if (offered) { post.media = [...post.media, { url: offered.url, kind: 'video' }]; return; }
+  // With the video saved, its cover would only duplicate it in Eagle (which
+  // shows the video's own frame); the cover stays only when there is no video.
+  if (offered) { post.media = [{ url: offered.url, kind: 'video' }]; return; }
   // The page read the player config already (see vimeoPlayerConfig); only if
   // it could not, try from here.
   let { configStatus, allowDownload, progressive, owner } = post.vimeo;
@@ -270,7 +272,7 @@ async function addVimeoVideo(post) {
     if (!downloadButton && !allowDownload) { post.note = 'Video not saved: the owner has not enabled downloads. Saved as a reference.'; return; }
     const best = (progressive || []).slice().sort((a, b) => (b.width || 0) - (a.width || 0))[0];
     if (!best) { post.note = 'Video not saved: Vimeo only streams this video. Saved as a reference.'; return; }
-    post.media = [...post.media, { url: best.url, kind: 'video' }];
+    post.media = [{ url: best.url, kind: 'video' }];
     if (!post.author && owner) post.author = owner;
   } catch (error) { post.note = `Video not saved: ${error.message}`; }
 }
