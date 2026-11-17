@@ -13,8 +13,10 @@ Save visual references from the web directly to [Eagle](https://eagle.cool/) or 
 - Pinterest pins at original size: images, videos, carousels, and idea pins. Only the open pin is saved — never related or promoted pins — and its source link is kept unless it looks like spam
 - X (Twitter) posts: photos at original size and videos (videos use X's public embed service; Chrome asks for access the first time)
 - YouTube videos and Shorts as references: the cover image at the highest available resolution, with the title, channel, description, and link. The video itself is not downloaded.
+- Vimeo videos as references, like YouTube; the MP4 is saved too when the owner allows downloads and Vimeo serves a file rather than a stream (Chrome asks for access to the Vimeo player the first time)
 - Any other site through **I feel lucky** — an opt-in, best-effort media collector
 - Eagle import with the original post URL, a clean title, tags, and caption/description
+- **Stack posts in Eagle** (optional): a post with several files gets its own folder under `Social Stacks`, and its first file the `Main Cover` tag. Make a smart folder (New Smart Folder) with the rule *Tags · Any · Main Cover* to browse one tile per post; the cover's folder, under Folders in the right-hand panel, holds the whole post. A step-by-step guide opens the first time you turn stacks on, and from **How stacks work** in the popup
 - Save to Downloads: one `Downloads/Local Social Archive` folder; each post's files share a name (the video or pin title, or platform, author, and time) with a `.txt` note holding the author, link, and caption
 
 > **I feel lucky** requests permission only for the site currently open in your tab. It is intended for public, browser-accessible media and does not guarantee support for every website.

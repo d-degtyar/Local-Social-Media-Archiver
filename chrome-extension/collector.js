@@ -14,6 +14,7 @@
     if (platform === 'pinterest') return collectPinterestPin();
     if (platform === 'x') return collectXPost();
     if (platform === 'youtube') return collectYouTubeVideo();
+    if (platform === 'vimeo') return collectVimeoVideo();
     const root = findPostRoot(platform);
     // Deliberately collect only elements rendered inside the post. A previous
     // performance-resource fallback also picked up feed previews and avatars.
@@ -27,14 +28,24 @@
     // Threads streams video to its player as blob: data, so the page's own
     // post JSON (the Instagram media format) is the only source of the MP4.
     const threadsPost = platform === 'threads' ? threadsPostData() : null;
-    const threadsMedia = threadsPost ? mediaFromInstagramNode(threadsPost) : [];
+    let threadsMedia = threadsPost ? mediaFromInstagramNode(threadsPost) : [];
+    let threadsNote = '';
+    // The page data may describe a video post by its cover only. When the
+    // post has a player (or the data says video, media_type 2), take the file
+    // from the player or from what the page downloaded instead of the cover.
+    if (threadsPost && !threadsMedia.some(item => item.kind === 'video')
+      && (Number(threadsPost.media_type) === 2 || root?.querySelector('video'))) {
+      const video = threadsVideoFromPage(root);
+      if (video) threadsMedia = threadsMedia.length <= 1 ? [video] : [...threadsMedia, video];
+      else threadsNote = 'Only the cover was found: play the video for a second, then save again.';
+    }
     // Do not add a network fallback when the structured Instagram data already
     // supplied a video: it is commonly a byte-range copy of the same Reel.
     const reelFallback = platform === 'instagram' && isInstagramReel() && !instagramMedia.some(item => item.kind === 'video')
       ? observedInstagramVideo()
       : [];
     const linkedInVideo = platform === 'linkedin' && !(linkedInEmbed?.media || domMedia).some(item => item.kind === 'video')
-      ? observedLinkedInVideo()
+      ? (root ? linkedInVideoData(root) : []).concat(observedLinkedInVideo()).slice(0, 1)
       : [];
     // Parsed post data is first because it contains every carousel item, not
     // merely the two slides currently rendered by Instagram.
@@ -70,7 +81,8 @@
       media: merged,
       // blob: and MediaSource streams cannot be downloaded by URL. Report them
       // so the popup can explain why a visible video was not saved.
-      streamedVideo: !merged.some(item => item.kind === 'video') && hasStreamedVideo(root)
+      streamedVideo: !merged.some(item => item.kind === 'video') && hasStreamedVideo(root),
+      note: merged.some(item => item.kind === 'video') ? '' : threadsNote
     };
   }
 
@@ -80,6 +92,7 @@
     // Exact hosts for X: a substring test for "x.com" would match netflix.com.
     if (['x.com', 'www.x.com', 'mobile.x.com', 'twitter.com', 'www.twitter.com', 'mobile.twitter.com'].includes(host)) return 'x';
     if (['www.youtube.com', 'youtube.com', 'm.youtube.com'].includes(host)) return 'youtube';
+    if (['vimeo.com', 'www.vimeo.com', 'player.vimeo.com'].includes(host)) return 'vimeo';
     if (/(^|\.)pinterest\.(com|[a-z]{2}|co\.[a-z]{2}|com\.[a-z]{2})$/.test(host)) return 'pinterest';
     if (host.includes('instagram')) return 'instagram';
     if (host.includes('threads')) return 'threads';
@@ -116,7 +129,8 @@
 
   async function collectLinkedInEmbed() {
     if (location.pathname.startsWith('/embed/feed/update/')) return null;
-    const match = location.pathname.match(/(?:ugcPost|activity)-(\d+)/);
+    // Both /posts/name_activity-123-xyz and /feed/update/urn:li:activity:123/.
+    const match = location.pathname.match(/(?:ugcPost|activity)[-:](\d+)/);
     if (!match) return null;
     const urnKind = location.pathname.includes('ugcPost-') ? 'ugcPost' : 'activity';
     const iframe = document.createElement('iframe');
@@ -139,6 +153,9 @@
         .map(item => item.currentSrc || item.src || item.querySelector('source')?.src || '')
         .find(url => /^https?:/i.test(url));
       if (video) media.push({ url: video, kind: 'video' });
+      // The player only gets a file URL once played; the MP4 list is in its
+      // data-sources attribute and in the page's progressiveStreams data.
+      if (!media.some(item => item.kind === 'video')) media.push(...linkedInVideoData(frameDocument));
       return {
         media: dedupe(media),
         author: authorFrom(frameRoot, 'linkedin'),
@@ -146,6 +163,21 @@
       };
     } catch { return null; }
     finally { iframe.remove(); }
+  }
+  function linkedInVideoData(scope) {
+    const fromPlayer = [...scope.querySelectorAll('video[data-sources]')].flatMap(player => {
+      try { return JSON.parse(player.getAttribute('data-sources')); } catch { return []; }
+    }).filter(source => /^https:/.test(source?.src || '') && !/\.m3u8/i.test(source.src) && (!source.type || /mp4/.test(source.type)))
+      .sort((a, b) => (Number(b['data-bitrate'] || b.bitrate) || 0) - (Number(a['data-bitrate'] || a.bitrate) || 0));
+    if (fromPlayer[0]) return [{ url: fromPlayer[0].src, kind: 'video' }];
+    // progressiveStreams: [{ width, bitRate, streamingLocations: [{ url }] }]
+    const text = [...scope.querySelectorAll('code, script:not([src])')].map(node => node.textContent || '').find(content => content.includes('progressiveStreams')) || '';
+    const start = text.indexOf('[', text.indexOf('"progressiveStreams"'));
+    let streams = [];
+    try { streams = start > 0 ? JSON.parse(balanced(text, start, '[', ']')) : []; } catch { /* not JSON */ }
+    const best = streams.filter(stream => /^https:/.test(stream?.streamingLocations?.[0]?.url || ''))
+      .sort((a, b) => (b.width || 0) * 10_000_000 + (b.bitRate || 0) - ((a.width || 0) * 10_000_000 + (a.bitRate || 0)))[0];
+    return best ? [{ url: best.streamingLocations[0].url, kind: 'video' }] : [];
   }
   function wait(milliseconds) { return new Promise(resolve => setTimeout(resolve, milliseconds)); }
 
@@ -156,16 +188,27 @@
   }
   function postFromPageJson(shortcode) {
     const scripts = [...document.querySelectorAll('script[type="application/json"], script:not([src])')];
+    // A page can describe the same post more than once: a preview with only
+    // the cover, and the full post with its video or every carousel slide.
+    // Collect every match and keep the richest.
+    const found = [];
     for (const script of scripts) {
       const text = script.textContent || '';
       // Threads keeps whole feeds in one script, so allow large ones.
       if (!text.includes(shortcode) || text.length > 20_000_000) continue;
-      try {
-        const post = findInstagramPost(JSON.parse(text), shortcode);
-        if (post) return post;
-      } catch { /* Not every inline script contains JSON. */ }
+      try { collectInstagramPosts(JSON.parse(text), shortcode, found); } catch { /* Not every inline script contains JSON. */ }
     }
-    return null;
+    return found.sort((a, b) => postRichness(b) - postRichness(a))[0] || null;
+  }
+  function postRichness(post) {
+    const nodes = Array.isArray(post.carousel_media) && post.carousel_media.length ? post.carousel_media : [post];
+    return nodes.length * 2 + nodes.filter(node => Array.isArray(node.video_versions) && node.video_versions.length).length * 10;
+  }
+  function collectInstagramPosts(value, shortcode, found, depth = 0) {
+    if (!value || typeof value !== 'object' || depth > 40) return;
+    if (Array.isArray(value)) { for (const item of value) collectInstagramPosts(item, shortcode, found, depth + 1); return; }
+    if (String(value.code || value.shortcode || '') === shortcode && (value.carousel_media || value.image_versions2 || value.video_versions)) found.push(value);
+    for (const child of Object.values(value)) collectInstagramPosts(child, shortcode, found, depth + 1);
   }
   // Posts opened from the feed or a profile are loaded by XHR, so their data is
   // not in the page's inline JSON; Stories never are. Ask the same web API the
@@ -206,9 +249,18 @@
     return match?.[1] || '936619743392459';
   }
   function threadsPostData() {
-    // /@username/post/<code>; the code identifies the post like an Instagram shortcode.
-    const code = (location.pathname.match(/\/post\/([A-Za-z0-9_-]+)/) || [])[1];
+    const code = threadsPostCode();
     return code ? postFromPageJson(code) : null;
+  }
+  // /@username/post/<code>; the code identifies the post like an Instagram
+  // shortcode. Share links (/share/<id>) carry no code: read it from the
+  // page's canonical address instead.
+  function threadsPostCode() {
+    const fromPath = (path) => (String(path || '').match(/\/post\/([A-Za-z0-9_-]+)/) || [])[1] || '';
+    return fromPath(location.pathname)
+      || fromPath(document.querySelector('link[rel="canonical"]')?.href)
+      || fromPath(document.querySelector('meta[property="og:url"]')?.content)
+      || fromPath(document.querySelector('meta[property="al:android:url"], meta[property="al:ios:url"]')?.content);
   }
   function instagramShortcode() {
     const parts = location.pathname.split('/').filter(Boolean);
@@ -218,16 +270,7 @@
   function isInstagramReel() {
     return location.pathname.split('/').filter(Boolean).some(part => ['reel', 'reels'].includes(part));
   }
-  function findInstagramPost(value, shortcode, depth = 0) {
-    if (!value || typeof value !== 'object' || depth > 40) return null;
-    if (Array.isArray(value)) {
-      for (const item of value) { const found = findInstagramPost(item, shortcode, depth + 1); if (found) return found; }
-      return null;
-    }
-    if (String(value.code || value.shortcode || '') === shortcode && (value.carousel_media || value.image_versions2 || value.video_versions)) return value;
-    for (const child of Object.values(value)) { const found = findInstagramPost(child, shortcode, depth + 1); if (found) return found; }
-    return null;
-  }
+
   function mediaFromInstagramNode(post) {
     const nodes = Array.isArray(post.carousel_media) && post.carousel_media.length ? post.carousel_media : [post];
     return nodes.flatMap(node => {
@@ -250,6 +293,22 @@
     if (!Array.isArray(variants)) return null;
     return variants.filter(item => item && /^https?:/i.test(item.url || ''))
       .sort((a, b) => ((b.width || 0) * (b.height || 0)) - ((a.width || 0) * (a.height || 0)))[0] || null;
+  }
+  function threadsVideoFromPage(root) {
+    const fromPlayer = [...(root || document).querySelectorAll('video')]
+      .flatMap(video => [video.currentSrc, video.src, ...[...video.querySelectorAll('source')].map(source => source.src)])
+      .find(url => /^https:/i.test(url || ''));
+    if (fromPlayer) return { url: fromPlayer, kind: 'video' };
+    // A streamed player fetches the MP4 in byte ranges; without the range
+    // parameters the same address serves the whole file.
+    const entry = performance.getEntriesByType('resource')
+      .filter(item => /(?:cdninstagram|fbcdn)\./i.test(item.name) && /\.mp4(?:\?|$)/i.test(item.name))
+      .sort((a, b) => (b.transferSize || b.encodedBodySize || 0) - (a.transferSize || a.encodedBodySize || 0))[0];
+    if (!entry) return null;
+    const url = new URL(entry.name);
+    url.searchParams.delete('bytestart');
+    url.searchParams.delete('byteend');
+    return { url: url.href, kind: 'video' };
   }
   function observedInstagramVideo() {
     const directVideo = [...document.querySelectorAll('video')]
@@ -521,7 +580,8 @@
       return { title: details.title || '', channel: details.author || '', description: (details.shortDescription || '').trim() };
     } catch { return null; }
   }
-  function balancedJson(text, start) {
+  function balancedJson(text, start) { return balanced(text, start, '{', '}'); }
+  function balanced(text, start, open, close) {
     let depth = 0, inString = false, escaped = false;
     for (let index = start; index < text.length; index++) {
       const character = text[index];
@@ -530,8 +590,8 @@
         else if (character === '\\') escaped = true;
         else if (character === '"') inString = false;
       } else if (character === '"') inString = true;
-      else if (character === '{') depth++;
-      else if (character === '}' && --depth === 0) return text.slice(start, index + 1);
+      else if (character === open) depth++;
+      else if (character === close && --depth === 0) return text.slice(start, index + 1);
     }
     return '';
   }
@@ -554,6 +614,120 @@
     });
   }
 
+  // Vimeo -------------------------------------------------------------------
+  // A reference card like YouTube: cover, title, author, description, link.
+  // The background script adds the MP4 only when the owner allows downloads.
+  async function collectVimeoVideo() {
+    const match = location.pathname.match(/(?:^|\/)(\d{6,})(?:\/([0-9a-f]{6,}))?(?:\/|$)/);
+    const videoId = match?.[1] || '';
+    const hash = match?.[2] || new URLSearchParams(location.search).get('h') || '';
+    const pageUrl = videoId ? `https://vimeo.com/${videoId}${hash ? `/${hash}` : ''}` : location.href;
+    let info = null;
+    if (videoId) {
+      try {
+        const response = await fetch(`https://vimeo.com/api/oembed.json?url=${encodeURIComponent(pageUrl)}&width=1920`);
+        if (response.ok) info = await response.json();
+      } catch { /* fall back to the page */ }
+    }
+    const title = (info?.title || document.querySelector('meta[property="og:title"]')?.content || document.title.replace(/\s+on Vimeo$/, '')).trim();
+    const cover = await vimeoCover(info?.thumbnail_url || document.querySelector('meta[property="og:image"]')?.content || '');
+    return {
+      platform: 'vimeo',
+      url: pageUrl,
+      title,
+      headline: title,
+      author: String(info?.author_name || '').slice(0, 80),
+      text: [title, (info?.description || '').trim()].filter(Boolean).join('\n\n').slice(0, 12000),
+      media: cover ? [{ url: cover, kind: 'image' }] : [],
+      streamedVideo: false,
+      vimeo: videoId ? { id: videoId, hash, downloadButton: vimeoDownloadButton(), configUrl: vimeoConfigUrl(), ...(await vimeoDownloads(videoId, hash).then(result => ({ downloads: result.files, downloadSteps: result.steps }))), ...(await vimeoPlayerConfig(videoId, hash)) } : null
+    };
+  }
+  async function vimeoCover(url) {
+    if (!/^https?:/i.test(url)) return '';
+    // Thumbnail URLs end in a size (_640, _295x166); ask for 1920 first.
+    const large = url.replace(/_\d+(?:x\d+)?(\.\w+)?(\?.*)?$/, '_1920$1');
+    if (large !== url && await imageLoads(large)) return large;
+    return url;
+  }
+  // The files the owner allows to download: what the page's Download button
+  // lists. Vimeo's site gets them from its API (the video's "download"
+  // field) with a short-lived token for the signed-in viewer; do the same.
+  // Older pages answered ?action=load_download_config; an open Download
+  // dialog lists the links too.
+  async function vimeoDownloads(videoId, hash) {
+    const files = [];
+    const steps = [];
+    try {
+      const viewer = await fetch('/_next/viewer', { credentials: 'include', headers: { Accept: 'application/json' } });
+      const jwt = viewer.ok ? (await viewer.json())?.jwt : '';
+      steps.push(`viewer ${viewer.status}${jwt ? '' : ' (no token)'}`);
+      if (jwt) {
+        const api = await fetch(`https://api.vimeo.com/videos/${videoId}${hash ? `:${hash}` : ''}?fields=download`, {
+          headers: { Authorization: `jwt ${jwt}`, Accept: 'application/vnd.vimeo.*+json;version=3.4.10' }
+        });
+        steps.push(`api ${api.status}`);
+        if (api.ok) {
+          for (const file of (await api.json())?.download || []) {
+            if (/^https:/.test(file?.link || '') && file.quality !== 'hls') {
+              files.push({ url: file.link, width: Number(file.width) || 0, source: file.quality === 'source' });
+            }
+          }
+        }
+      }
+    } catch (error) { steps.push(`api failed: ${error.message}`); }
+    if (!files.length) {
+      try {
+        const response = await fetch(`/${videoId}${hash ? `/${hash}` : ''}?action=load_download_config`, {
+          credentials: 'include', headers: { 'X-Requested-With': 'XMLHttpRequest', Accept: 'application/json' }
+        });
+        steps.push(`download config ${response.status}`);
+        if (response.ok && /json/.test(response.headers.get('content-type') || '')) {
+          for (const file of (await response.json())?.files || []) {
+            const url = file.download_url || file.link || file.url;
+            if (/^https:/.test(url || '') && !/\.m3u8/i.test(url)) files.push({ url, width: Number(file.width) || parseInt(file.public_name || file.quality || '', 10) || 0 });
+          }
+        }
+      } catch { /* try the dialog */ }
+    }
+    for (const link of document.querySelectorAll('a[href*="progressive_redirect/download"]')) {
+      files.push({ url: link.href, width: parseInt((link.textContent.match(/(\d{3,4})p/) || [])[1], 10) || parseInt((decodeURIComponent(link.href).match(/\((\d{3,4})p\)/) || [])[1], 10) || 0 });
+    }
+    const unique = [...new Map(files.map(file => [file.url, file])).values()];
+    return { files: unique, steps: steps.join(', ') };
+  }
+  // Vimeo answers the player config only to requests from its own pages (its
+  // cookies and referrer), so read it here, in the page, as the player does.
+  async function vimeoPlayerConfig(videoId, hash) {
+    const url = vimeoConfigUrl() || `https://player.vimeo.com/video/${videoId}/config${hash ? `?h=${hash}` : ''}`;
+    try {
+      const response = await fetch(url, { credentials: 'include' });
+      if (!response.ok) return { configStatus: response.status };
+      const config = await response.json();
+      return {
+        configStatus: 200,
+        allowDownload: config.video?.allow_download === true,
+        progressive: (config.request?.files?.progressive || [])
+          .filter(file => /^https:/.test(file?.url || ''))
+          .map(file => ({ url: file.url, width: file.width || 0 })),
+        owner: config.video?.owner?.name || ''
+      };
+    } catch { return { configStatus: 0 }; }
+  }
+  // The player-config URL in the page is signed; without the signature many
+  // videos answer 403.
+  function vimeoConfigUrl() {
+    const match = document.documentElement.innerHTML.match(/"config_url"\s*:\s*"(https:[^"]+)"/);
+    if (!match) return '';
+    const url = match[1].replace(/\\\//g, '/').replace(/\\u0026/g, '&').replace(/&amp;/g, '&');
+    return /^https:\/\/player\.vimeo\.com\//.test(url) ? url : '';
+  }
+  function vimeoDownloadButton() {
+    // Shown only when the owner allows downloads.
+    return [...document.querySelectorAll('button, a')].some(element =>
+      /^download$/i.test((element.getAttribute('aria-label') || element.textContent || '').trim()));
+  }
+
   // X / Twitter -------------------------------------------------------------
   // Photos come from the open post in the page, at original size. Videos are
   // streamed to the page as blob: data; the background script fetches a
@@ -561,14 +735,26 @@
   function collectXPost() {
     const statusId = (location.pathname.match(/\/status(?:es)?\/(\d+)/) || [])[1] || '';
     const author = (location.pathname.match(/^\/([A-Za-z0-9_]{1,15})\/status/) || [])[1] || '';
+    const articles = [...document.querySelectorAll('article')];
+    // The open post: the one whose timestamp links to this id; on a post page X
+    // also marks it with tabindex="-1". Replies and thread parents link elsewhere.
     const root = statusId
-      ? [...document.querySelectorAll('article')].find(article => article.querySelector(`a[href*="/status/${statusId}"] time`))
+      ? articles.find(article => article.querySelector(`a[href*="/status/${statusId}"] time`))
+        || articles.find(article => article.getAttribute('tabindex') === '-1')
+        || articles.find(article => article.querySelector(`a[href*="/status/${statusId}/photo/"]`))
       : null;
-    const photos = root ? [...root.querySelectorAll('img[src*="pbs.twimg.com/media/"]')]
+    const urls = root ? [
+      ...[...root.querySelectorAll('img[src*="pbs.twimg.com/media/"]')].map(image => ({ node: image, url: image.currentSrc || image.src })),
+      // Photos are also painted as a background image; covered or blurred ones
+      // (content warnings) may only exist there.
+      ...[...root.querySelectorAll('[style*="pbs.twimg.com/media/"]')].map(node => ({ node, url: (node.getAttribute('style').match(/url\(["']?([^"')]+pbs\.twimg\.com\/media\/[^"')]+)/) || [])[1] || '' }))
+    ] : [];
+    const photos = urls
+      .filter(({ url }) => /pbs\.twimg\.com\/media\//.test(url))
       // Skip media of a quoted post, rendered inside the main post as a link card.
-      .filter(image => !image.closest('div[role="link"]'))
-      .map(image => ({ url: xOriginalImage(image.currentSrc || image.src), kind: 'image' })) : [];
-    const media = dedupe(photos).slice(0, MAX_MEDIA);
+      .filter(({ node }) => { const card = node.closest('div[role="link"]'); return !card || !root.contains(card) || card === root; })
+      .map(({ url }) => ({ url: xOriginalImage(url.replace(/&amp;/g, '&')), kind: 'image' }));
+    const media = [...new Map(photos.map(item => [xMediaKey(item.url), item])).values()].slice(0, MAX_MEDIA);
     return {
       platform: 'x',
       url: statusId && author ? `https://x.com/${author}/status/${statusId}` : location.href,
@@ -577,8 +763,13 @@
       statusId,
       text: (root?.querySelector('[data-testid="tweetText"]')?.innerText || '').trim().slice(0, 12000),
       media,
-      streamedVideo: Boolean(root?.querySelector('video'))
+      streamedVideo: Boolean(root?.querySelector('video')),
+      // Why nothing was found, shown in the popup if the embed service fails too.
+      diagnosis: !statusId ? 'not a post page' : !root ? 'post not found on the page' : !media.length ? 'no photos in the page' : ''
     };
+  }
+  function xMediaKey(url) {
+    return (url.match(/pbs\.twimg\.com\/media\/([^?.]+)/) || [])[1] || url;
   }
   function xOriginalImage(url) {
     try {

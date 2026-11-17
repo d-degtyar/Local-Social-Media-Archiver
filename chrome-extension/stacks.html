@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Stacks in Eagle</title>
+    <link rel="stylesheet" href="stacks.css">
+  </head>
+  <body>
+    <main>
+      <header>
+        <img src="assets/icons/icon-128.png" alt="" width="56" height="56">
+        <div>
+          <h1>Stacks in Eagle</h1>
+          <p class="lead">One tile per post. Carousels stay together, and the library stays easy to browse.</p>
+        </div>
+      </header>
+
+      <section class="diagram" aria-label="How a post becomes a stack">
+        <figure>
+          <div class="post">
+            <span class="tile t1"></span><span class="tile t2"></span><span class="tile t3"></span>
+          </div>
+          <figcaption><strong>A post</strong> with several photos or videos</figcaption>
+        </figure>
+        <span class="arrow" aria-hidden="true">→</span>
+        <figure>
+          <div class="folder">
+            <div class="folder-name">📁 Social Stacks / <em>Logo reel</em></div>
+            <div class="grid">
+              <span class="tile t1 cover"><b>Main Cover</b></span><span class="tile t2"></span><span class="tile t3"></span>
+            </div>
+          </div>
+          <figcaption><strong>Its own folder</strong>; the first file is tagged <code>Main Cover</code></figcaption>
+        </figure>
+        <span class="arrow" aria-hidden="true">→</span>
+        <figure>
+          <div class="folder smart">
+            <div class="folder-name">✨ Stacks</div>
+            <div class="grid">
+              <span class="tile t1"></span><span class="tile t4"></span><span class="tile t5"></span><span class="tile t6"></span>
+            </div>
+          </div>
+          <figcaption><strong>A smart folder</strong> shows only covers: one per post</figcaption>
+        </figure>
+      </section>
+
+      <ol class="steps">
+        <li>
+          <h2>Turn on stacks</h2>
+          <p>In the extension popup, tick <strong>Stack posts in Eagle</strong>. From now on, every post you save to Eagle with more than one file goes into its own folder under <strong>Social Stacks</strong>, and its first file gets the tag <code>Main Cover</code>. A single image gets the tag too, without a folder.</p>
+        </li>
+        <li>
+          <h2>Create the “Stacks” smart folder once</h2>
+          <p>In Eagle, click <strong>+</strong> next to <strong>Smart Folders</strong> in the sidebar and choose <strong>New Smart Folder</strong>. Name it <strong>Stacks</strong> and set one rule:</p>
+          <div class="rule"><span>Tags</span><span>Any</span><span class="value">Main Cover</span>
+            <button id="copy-tag" type="button">Copy tag</button></div>
+          <p class="hint">Then click <strong>Create</strong>. Eagle cannot create smart folders from an extension, so this one step is yours.</p>
+        </li>
+        <li>
+          <h2>Browse posts, open a stack</h2>
+          <p>Open <strong>Stacks</strong>: one tile per post. Select a cover; in the right-hand panel, under <strong>Folders</strong>, click the post's folder to see every slide. Use ← and → to flip through them.</p>
+        </li>
+      </ol>
+
+      <section class="tips">
+        <h2>Good to know</h2>
+        <ul>
+          <li><strong>Search works in Stacks.</strong> A cover carries the post's title, caption and tags, so searching inside Stacks finds posts, not loose slides. Searching in <strong>All</strong> still finds every file.</li>
+          <li><strong>Make more feeds.</strong> Add a second rule, <em>Tags · Any · instagram</em>, and set the top line to <em>all of the following are true</em> for a feed of Instagram posts only.</li>
+          <li><strong>New saves only.</strong> Items saved before you turned stacks on keep their place.</li>
+          <li><strong>Change the cover</strong> by moving the <code>Main Cover</code> tag to another file in the post's folder.</li>
+        </ul>
+      </section>
+    </main>
+    <script src="stacks.js"></script>
+  </body>
+</html>

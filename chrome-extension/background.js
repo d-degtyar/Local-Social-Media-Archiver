@@ -37,13 +37,21 @@ function asciiPath(path) {
   }).join('/');
 }
 
+// After an update, mark the toolbar icon so the change is visible; the popup
+// shows what is new and clears the mark when dismissed.
+chrome.runtime.onInstalled.addListener(({ reason }) => {
+  if (reason !== 'update') return;
+  chrome.action.setBadgeText({ text: 'NEW' });
+  chrome.action.setBadgeBackgroundColor({ color: '#e0161f' });
+});
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type !== 'ARCHIVE_ACTIVE_TAB') return;
-  archiveActiveTab(message.destination, message.universal === true).then(sendResponse).catch(error => sendResponse({ ok: false, error: error.message }));
+  archiveActiveTab(message.destination, message.universal === true, message.stack === true).then(sendResponse).catch(error => sendResponse({ ok: false, error: error.message }));
   return true;
 });
 
-async function archiveActiveTab(destination = 'downloads', universal = false) {
+async function archiveActiveTab(destination = 'downloads', universal = false, stack = false) {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id || !tab.url) throw new Error('Could not find active tab.');
   if (!universal && !isSupported(tab.url)) return { ok: false, error: 'Open a post on a supported site — or enable I feel lucky.' };
@@ -51,10 +59,15 @@ async function archiveActiveTab(destination = 'downloads', universal = false) {
   await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['collector.js'] });
   const post = await chrome.tabs.sendMessage(tab.id, { type: 'COLLECT_POST' });
   if (post?.platform === 'x' && post.statusId) await addXEmbedMedia(post);
+  if (post?.platform === 'vimeo' && post.vimeo) await addVimeoVideo(post);
   if (!post?.media?.length) {
     return {
       ok: false,
-      error: post?.platform === 'youtube'
+      error: post?.platform === 'x' && !post.streamedVideo
+        ? `No photos found in this X post (${[post.diagnosis, post.embedStatus].filter(Boolean).join('; ') || 'unknown reason'}). If the post shows a content warning, click Show and retry.`
+        : post?.platform === 'vimeo'
+        ? 'Open a Vimeo video page to save its cover as a reference.'
+        : post?.platform === 'youtube'
         ? 'Open a YouTube video or Short to save its cover as a reference.'
         : post?.platform === 'x' && post.streamedVideo
         ? 'X videos need access to X\'s embed service. Click Save again and choose Allow when Chrome asks.'
@@ -65,7 +78,7 @@ async function archiveActiveTab(destination = 'downloads', universal = false) {
   }
 
   const uniqueMedia = [...new Map(post.media.map(item => [item.url, item])).values()];
-  if (destination === 'eagle') return saveToEagle(post, uniqueMedia);
+  if (destination === 'eagle') return { ...(await saveToEagle(post, uniqueMedia, stack)), note: post.note || '' };
 
   // One flat folder, no subfolder per post. Every file of a post shares a base
   // name, so they sort together and never overwrite another post's files:
@@ -98,7 +111,7 @@ async function archiveActiveTab(destination = 'downloads', universal = false) {
   const mediaCount = count('complete');
   const failed = count('interrupted');
   if (failed === uniqueMedia.length) return { ok: false, error: 'Downloads failed. Media links may have expired: reload the page and retry.' };
-  return { ok: true, mediaCount, pending: count('in_progress'), failed, renamed: await renamedByAnotherExtension(ids) };
+  return { ok: true, mediaCount, pending: count('in_progress'), failed, renamed: await renamedByAnotherExtension(ids), note: post.note || '' };
 }
 
 // Chrome lets the most recently installed extension that listens to
@@ -136,10 +149,36 @@ function waitForDownload(id, timeout = 3_000) {
   });
 }
 
-async function saveToEagle(post, media) {
+// Eagle has no stacks. Stack mode builds them from folders and a tag: a post
+// with several files gets its own folder under "Social Stacks", and its first
+// file the "Main Cover" tag. A smart folder filtered by that tag then shows one
+// tile per post; the cover's folder holds the whole post.
+const STACKS_FOLDER = 'Social Stacks';
+const COVER_TAG = 'Main Cover';
+async function stackFolderId(post) {
+  const findParent = async () => ((await eagleRequest('/api/folder/list', { method: 'GET' })).data || []).find(folder => folder.name === STACKS_FOLDER);
+  let parent = await findParent();
+  if (!parent) {
+    const created = (await eagleRequest('/api/folder/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ folderName: STACKS_FOLDER }) })).data;
+    // On the very first stack, read the id back if the answer lacks it;
+    // otherwise that post's folder would land outside Social Stacks.
+    parent = created?.id ? created : await findParent();
+  }
+  if (!parent?.id) throw new Error('Eagle did not create the Social Stacks folder. Try again.');
+  const name = (post.headline && safeTitle(post.headline))
+    || safeTitle(`${PLATFORM_NAMES[post.platform] || 'Web'} ${post.author || ''} ${localStamp()}`);
+  const child = await eagleRequest('/api/folder/create', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ folderName: name.slice(0, 120), parent: parent.id })
+  });
+  return child.data?.id;
+}
+
+async function saveToEagle(post, media, stack = false) {
   const appInfo = await eagleRequest('/api/v2/app/info', { method: 'GET' });
   if (appInfo.status !== 'success') throw new Error('Eagle did not respond. Open Eagle with an active library.');
   const tags = ['social-media', post.platform, ...(post.author ? [safeName(post.author)] : [])];
+  const folderId = stack && media.length > 1 ? await stackFolderId(post) : '';
   const annotation = [post.text, post.sourceUrl && `Source: ${post.sourceUrl}`, `Original post: ${post.url}`].filter(Boolean).join('\n\n').slice(0, 15000);
   // Eagle's Web API V2 handles app/library state, while importing a remote
   // asset remains on the compatible local V1 endpoint.
@@ -149,12 +188,15 @@ async function saveToEagle(post, media) {
     body: JSON.stringify({
       url: item.url,
       // A real title (YouTube video, Pinterest pin) is easier to find in Eagle.
+      // YouTube and Vimeo covers are named "(cover)": Eagle treats an item with
+      // the same name and link as a duplicate of the video itself.
       name: post.headline
-        ? `${post.headline.slice(0, 120)}${media.length > 1 ? ` ${index + 1}` : ''}`
+        ? `${post.headline.slice(0, 120)}${['youtube', 'vimeo'].includes(post.platform) ? (item.kind === 'image' ? ' (cover)' : '') : media.length > 1 ? ` ${index + 1}` : ''}`
         : `${post.platform}-${safeName(post.author || 'post')}-${String(index + 1).padStart(2, '0')}`,
       website: post.url,
-      tags,
-      annotation
+      tags: stack && index === 0 ? [...tags, COVER_TAG] : tags,
+      annotation,
+      ...(folderId ? { folderId } : {})
     })
   })));
   const failed = results.filter(result => result.status === 'rejected').length;
@@ -169,11 +211,13 @@ async function saveToEagle(post, media) {
 const X_EMBED_ORIGIN = 'https://cdn.syndication.twimg.com/*';
 async function addXEmbedMedia(post) {
   try {
-    if (!await chrome.permissions.contains({ origins: [X_EMBED_ORIGIN] })) return;
+    if (!await chrome.permissions.contains({ origins: [X_EMBED_ORIGIN] })) { post.embedStatus = 'no access to the embed service'; return; }
     const token = ((Number(post.statusId) / 1e15) * Math.PI).toString(36).replace(/(0+|\.)/g, '');
     const response = await fetch(`https://cdn.syndication.twimg.com/tweet-result?id=${post.statusId}&token=${token}&lang=en`);
-    if (!response.ok) return;
+    if (!response.ok) { post.embedStatus = `embed service answered HTTP ${response.status}`; return; }
     const data = await response.json();
+    // Age-restricted or withheld posts come back as a tombstone without media.
+    if (data.__typename === 'TweetTombstone' || data.tombstone) { post.embedStatus = 'embed service hides this post (age-restricted or withheld)'; return; }
     const media = (data.mediaDetails || []).flatMap(item => {
       if (item.type === 'photo' && item.media_url_https) return [{ url: `${item.media_url_https}?name=orig`, kind: 'image' }];
       const best = (item.video_info?.variants || [])
@@ -181,10 +225,56 @@ async function addXEmbedMedia(post) {
         .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))[0];
       return best ? [{ url: best.url, kind: 'video' }] : [];
     });
+    // Older answers list photos separately.
+    if (!media.length) for (const photo of data.photos || []) if (photo.url) media.push({ url: `${photo.url.split('?')[0]}?name=orig`, kind: 'image' });
     if (media.length) post.media = media.slice(0, 20);
+    else post.embedStatus = 'embed service lists no media';
     if (!post.text && data.text) post.text = String(data.text).slice(0, 12000);
     if (!post.author && data.user?.screen_name) post.author = data.user.screen_name;
-  } catch { /* keep the photos found in the page */ }
+  } catch (error) { post.embedStatus = `embed service failed: ${error.message}`; }
+}
+
+// Vimeo: the player's config lists progressive MP4 files when there are
+// any. The video is saved only when the owner allows downloads (the page's
+// Download button, or the config saying so); otherwise the card stays a
+// reference. Optional permission, asked by the popup on the first Vimeo save.
+const VIMEO_PLAYER_ORIGIN = 'https://player.vimeo.com/*';
+async function addVimeoVideo(post) {
+  const { id, hash, downloadButton, configUrl, downloads, downloadSteps } = post.vimeo;
+  // Files from the Download button are, by definition, ones the owner allows.
+  // Prefer the largest rendition; the original upload ("source") only when
+  // it is all there is, as it can be very large.
+  const offered = (downloads || []).slice()
+    .sort((a, b) => (a.source ? 1 : 0) - (b.source ? 1 : 0) || (b.width || 0) - (a.width || 0))[0];
+  // With the video saved, its cover would only duplicate it in Eagle (which
+  // shows the video's own frame); the cover stays only when there is no video.
+  if (offered) { post.media = [{ url: offered.url, kind: 'video' }]; return; }
+  // The page read the player config already (see vimeoPlayerConfig); only if
+  // it could not, try from here.
+  let { configStatus, allowDownload, progressive, owner } = post.vimeo;
+  try {
+    if (configStatus !== 200 && await chrome.permissions.contains({ origins: [VIMEO_PLAYER_ORIGIN] })) {
+      const response = await fetch(configUrl || `https://player.vimeo.com/video/${id}/config${hash ? `?h=${hash}` : ''}`);
+      configStatus = response.status;
+      if (response.ok) {
+        const config = await response.json();
+        allowDownload = config.video?.allow_download === true;
+        progressive = (config.request?.files?.progressive || []).filter(file => /^https:/.test(file?.url || ''));
+        owner = config.video?.owner?.name || '';
+      }
+    }
+    if (configStatus !== 200) {
+      post.note = downloadButton
+        ? `Video not saved: Vimeo did not hand over the download links (${downloadSteps || 'no answer'}). Open the Download dialog on the page and save again. Saved as a reference.`
+        : 'Video not saved: no Download button on this video, so its owner has not allowed downloads. Saved as a reference.';
+      return;
+    }
+    if (!downloadButton && !allowDownload) { post.note = 'Video not saved: the owner has not enabled downloads. Saved as a reference.'; return; }
+    const best = (progressive || []).slice().sort((a, b) => (b.width || 0) - (a.width || 0))[0];
+    if (!best) { post.note = 'Video not saved: Vimeo only streams this video. Saved as a reference.'; return; }
+    post.media = [{ url: best.url, kind: 'video' }];
+    if (!post.author && owner) post.author = owner;
+  } catch (error) { post.note = `Video not saved: ${error.message}`; }
 }
 
 async function eagleRequest(path, options) {
@@ -200,7 +290,7 @@ async function eagleRequest(path, options) {
 function isSupported(url) {
   try {
     const host = new URL(url).hostname;
-    return ['www.instagram.com', 'www.threads.com', 'www.threads.net', 'www.linkedin.com', 'x.com', 'twitter.com', 'mobile.x.com', 'mobile.twitter.com', 'www.youtube.com', 'youtube.com', 'm.youtube.com'].includes(host)
+    return ['www.instagram.com', 'www.threads.com', 'www.threads.net', 'www.linkedin.com', 'x.com', 'twitter.com', 'mobile.x.com', 'mobile.twitter.com', 'www.youtube.com', 'youtube.com', 'm.youtube.com', 'vimeo.com', 'www.vimeo.com', 'player.vimeo.com'].includes(host)
       || host.endsWith('reddit.com')
       || /(^|\.)pinterest\.(com|[a-z]{2}|co\.[a-z]{2}|com\.[a-z]{2})$/.test(host);
   } catch { return false; }
@@ -245,7 +335,7 @@ function postSummary(post, filenames) {
     `Files: ${filenames.join(', ')}`
   ].filter(Boolean).join('\n') + '\n';
 }
-const PLATFORM_NAMES = { instagram: 'Instagram', threads: 'Threads', linkedin: 'LinkedIn', reddit: 'Reddit', pinterest: 'Pinterest', x: 'X', youtube: 'YouTube', web: 'Web' };
+const PLATFORM_NAMES = { instagram: 'Instagram', threads: 'Threads', linkedin: 'LinkedIn', reddit: 'Reddit', pinterest: 'Pinterest', x: 'X', youtube: 'YouTube', vimeo: 'Vimeo', web: 'Web' };
 function postKind(url) {
   try {
     const path = new URL(url).pathname;
@@ -253,6 +343,7 @@ function postKind(url) {
     if (/\/(?:reel|reels)\//.test(path)) return 'Reel';
     if (/^\/pin\//.test(path)) return 'pin';
     if (/^\/shorts\//.test(path)) return 'Short';
+    if (/(?:^|\/)\d{6,}(?:\/|$)/.test(path) && /vimeo\.com$/.test(new URL(url).hostname)) return 'video';
     if (/^\/(?:watch|live)\b/.test(path)) return 'video';
     if (/\/(?:p|post|posts|comments|feed\/update|status)\//.test(path)) return 'post';
   } catch { /* fall through */ }

@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.2.5 — Unreleased
+
+- Popup opens compact for new users; ? shows the explanations.
+- LinkedIn: videos save as video, not as their poster frame. /feed/update/urn:li:activity:… links now use the post's embed page, and the MP4 comes from the player's data-sources or the page's progressiveStreams data, so the video need not have been played.
+- Threads: when a page describes a post more than once (a preview with only the cover, and the full post), the richest one is used, so videos are no longer saved as their cover; a video post without a listed file falls back to the player's own source.
+- Vimeo: the player config is read from the video page itself, with Vimeo's cookies and referrer, as the player does (Vimeo refused it from the background with 403); the signed config URL in the page is used when present. A 403 that remains means the files are private or embed-only.
+- Threads: share links (threads.com/share/…) find the post through the page's canonical address, so their videos save as video.
+- Vimeo: the video comes from the same list as the page's Download button: the video's `download` field in Vimeo's API, read with the short-lived token Vimeo gives the signed-in viewer (the files the owner allows; the largest rendition, the original upload only when it is the only one). Older pages' download config and an open Download dialog are fallbacks; when all fail, the popup lists which step refused.
+- Threads: when the page data has only a video post's cover, the file is taken from the post's player or from what the page already downloaded; if the video was never played, the popup suggests playing it for a second and saving again.
+- Vimeo: when the video is saved, it replaces the cover instead of sitting next to it; the cover is saved only when the video cannot be.
+- YouTube and Vimeo covers are named "<title> (cover)" in Eagle, so Eagle no longer offers to replace an already saved video with its cover.
+- Stacks: the very first stacked post no longer lands outside Social Stacks when Eagle's folder-create answer carries no id.
+- Stacks guide matches Eagle's wording: New Smart Folder, rule Tags · Any · Main Cover, and the Folders section of the right-hand panel.
+- Compact popup: two save buttons and two toggles. The ? button turns on explanations (a caption under each control, the supported sites, privacy note and support links); it is on for new users and remembered once turned off.
+- What's new: after an update the toolbar icon shows NEW and the popup lists the version's highlights until dismissed.
+- Vimeo: videos save as reference cards like YouTube (largest cover, title, author, description, link). The MP4 is added when the owner allows downloads (the page's Download button or the player config) and Vimeo serves a progressive file; otherwise the popup says why only the card was saved.
+- X: photo-only posts save again. The open post is found by its timestamp link, by X's focus marker, or by its photo links, so replies in threads and posts without a timestamp link work; photos painted only as a background image (behind content warnings) are found too. The embed service is read for photos as well, and when nothing is found the popup says why.
+- Stack posts in Eagle: an option in the popup. Posts with several files go into their own folder under "Social Stacks" and the first file is tagged "Main Cover"; single files get the tag without a folder. A smart folder filtered by that tag shows one tile per post.
+- Stacks guide: a page with a diagram and three steps (turn on, create the "Stacks" smart folder with a copy-the-tag button, browse), plus tips on search and extra feeds. It opens the first time stacks are turned on and from "How stacks work" in the popup.
+
 ## Telegram Sorter
 
 - Moved to its own repository, with its history: [d-degtyar/eagle-telegram-sorter](https://github.com/d-degtyar/eagle-telegram-sorter).
