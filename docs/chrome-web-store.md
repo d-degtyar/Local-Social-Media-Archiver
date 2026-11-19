@@ -79,7 +79,7 @@ Save the media from the post in the current tab (images, carousels, videos, and 
 |---|---|
 | `activeTab` | Reads the post in the tab where the user clicked the extension, pressed its keyboard shortcut, or chose its right-click menu item, only after that action. |
 | `contextMenus` | Adds "Save post to Eagle" and "Save post to Downloads" to the right-click menu, so the user can save without opening the popup. |
-| `storage` | Keeps the user's "Stack posts" setting locally so that shortcut and right-click saves follow it. Nothing is sent anywhere. |
+| `storage` | Keeps the user's "Stack posts" setting, and the addresses of posts already saved, locally so that shortcut and right-click saves follow the setting and warn before saving the same post twice. Nothing is sent anywhere. |
 | `scripting` | Injects the media collector script into that tab to find the post's images, videos, and caption. |
 | `downloads` | Saves the media files and a .txt note with the author, post link, and caption to the user's Downloads folder when they choose Save to Downloads. |
 | Host permissions (instagram.com, threads.com/net, linkedin.com, reddit.com) | Reads post pages on the supported sites so the collector can find every carousel item and the post's video source. |

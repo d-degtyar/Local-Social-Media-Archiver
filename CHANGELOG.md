@@ -6,7 +6,9 @@
 - Shortcut and menu saves use the popup's Stack posts setting and work on any site through the same access a popup click gives (activeTab), so unsupported sites are tried without a permission prompt.
 - The result appears as a short notice in the corner of the page and on the toolbar badge (✓ or !, with the message as the icon's tooltip).
 - The popup's help (?) shows the current keys and a link to change them.
-- New permissions: contextMenus (the right-click items) and storage (keeps the Stack posts setting for shortcut saves). Neither adds an install warning.
+- Repeat warning for shortcut and menu saves: a post already saved to the same place (Eagle or Downloads) shows "Already saved … today at 14:20" instead; the same key or menu item again within 15 seconds saves it anyway. Popup buttons never ask, so deliberate retries stay one click. The extension remembers saved post addresses locally (up to 5,000) for this.
+- Threads photos save at the largest size the page offers: when the page describes a post more than once (a 640px preview and the full post) or its images list bigger sizes in srcset, every photo takes its largest version, matched by media id or by the CDN file name. Instagram posts benefit the same way.
+- New permissions: contextMenus (the right-click items) and storage (keeps the Stack posts setting and the list of saved post addresses, locally). Neither adds an install warning.
 
 ## 0.2.5 — Unreleased
 

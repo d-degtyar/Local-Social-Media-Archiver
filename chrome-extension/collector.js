@@ -198,7 +198,52 @@
       if (!text.includes(shortcode) || text.length > 20_000_000) continue;
       try { collectInstagramPosts(JSON.parse(text), shortcode, found); } catch { /* Not every inline script contains JSON. */ }
     }
-    return found.sort((a, b) => postRichness(b) - postRichness(a))[0] || null;
+    const post = found.sort((a, b) => postRichness(b) - postRichness(a))[0] || null;
+    if (post) upgradeImageCandidates(post, found, scripts);
+    return post;
+  }
+  // The richest description is not always the sharpest: Threads can describe
+  // the same photo once with full-size candidates and once as a 640px preview.
+  // Give each photo of the chosen post every candidate the page has for it:
+  // from the other descriptions (matched by media id) and from the <img>
+  // srcsets in the page (matched by the CDN file name, which every size of
+  // one photo shares). bestInstagramVariant then takes the largest.
+  function upgradeImageCandidates(post, found, scripts) {
+    const nodesOf = item => Array.isArray(item.carousel_media) && item.carousel_media.length ? item.carousel_media : [item];
+    const idOf = node => String(node.pk || node.id || '').split('_')[0];
+    const nodes = nodesOf(post).filter(node => node.image_versions2?.candidates);
+    if (!nodes.length) return;
+    const ids = new Set(nodes.map(idOf).filter(Boolean));
+    const extra = new Map();
+    const add = (key, candidates) => { if (key && Array.isArray(candidates)) extra.set(key, [...(extra.get(key) || []), ...candidates]); };
+    const visit = (value, depth = 0) => {
+      if (!value || typeof value !== 'object' || depth > 40) return;
+      if (Array.isArray(value)) { for (const item of value) visit(item, depth + 1); return; }
+      if (value.image_versions2?.candidates && ids.has(idOf(value))) add(idOf(value), value.image_versions2.candidates);
+      for (const child of Object.values(value)) visit(child, depth + 1);
+    };
+    for (const other of found) if (other !== post) visit(other);
+    for (const script of scripts) {
+      const text = script.textContent || '';
+      if (text.length > 20_000_000 || ![...ids].some(id => text.includes(id))) continue;
+      try { visit(JSON.parse(text)); } catch { /* not JSON */ }
+    }
+    const fileOf = url => { try { return new URL(url, location.href).pathname.split('/').pop(); } catch { return ''; } };
+    const domSizes = new Map();
+    for (const image of document.querySelectorAll('img[srcset], img[src*="cdninstagram"], img[src*="fbcdn"]')) {
+      const entries = (image.getAttribute('srcset') || '').split(',').map(entry => entry.trim().split(/\s+/))
+        .filter(([url]) => url).map(([url, size]) => ({ url: new URL(url, location.href).href, width: parseFloat(size) || 0, height: 0 }));
+      if (image.currentSrc || image.src) entries.push({ url: image.currentSrc || image.src, width: image.naturalWidth || 0, height: image.naturalHeight || 0 });
+      for (const entry of entries) { const file = fileOf(entry.url); if (file) domSizes.set(file, [...(domSizes.get(file) || []), entry]); }
+    }
+    for (const node of nodes) {
+      const own = node.image_versions2.candidates;
+      const files = new Set(own.map(candidate => fileOf(candidate.url)).filter(Boolean));
+      const fromDom = [...files].flatMap(file => domSizes.get(file) || [])
+        // srcset gives a width only; estimate the height from the photo's shape.
+        .map(entry => entry.height || !own[0]?.width ? entry : { ...entry, height: Math.round(entry.width * (own[0].height || 0) / own[0].width) });
+      node.image_versions2 = { ...node.image_versions2, candidates: [...own, ...(extra.get(idOf(node)) || []), ...fromDom] };
+    }
   }
   function postRichness(post) {
     const nodes = Array.isArray(post.carousel_media) && post.carousel_media.length ? post.carousel_media : [post];

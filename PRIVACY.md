@@ -21,7 +21,7 @@ When you click **Save to Eagle** or **Save to Downloads**, the extension reads t
 - No analytics, tracking, advertising, or telemetry.
 - No account, no developer server, no cloud processing.
 - Cookies and browsing history are not read or sent anywhere.
-- The extension keeps only its own settings between uses (whether explanations and Stack posts are on), in your browser's local storage.
+- Between uses the extension keeps, in your browser's local storage only: its settings (whether explanations and Stack posts are on), and the addresses of posts you saved with the time and destination, so a keyboard-shortcut or right-click save can warn before saving the same post twice. This list never leaves your computer, holds at most 5,000 entries, and is deleted when you remove the extension.
 
 ## "I feel lucky"
 

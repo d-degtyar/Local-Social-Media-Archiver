@@ -44,7 +44,8 @@ const WHATS_NEW = {
   '0.2.6': [
     'Save without opening the popup: Alt+Shift+S to Eagle, Alt+Shift+D to Downloads.',
     'Or right-click a post: Save post to Eagle / to Downloads.',
-    'A short notice in the page corner shows what was saved.'
+    'A short notice in the page corner shows what was saved, and warns before saving the same post twice.',
+    'Threads photos save at full size.'
   ],
   '0.2.5': [
     'A cleaner popup: press ? for explanations and the list of sites.',

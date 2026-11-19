@@ -66,10 +66,14 @@ chrome.runtime.onInstalled.addListener(() => {
   });
 });
 chrome.commands.onCommand.addListener((command, tab) => { if (MENU_ITEMS[command]) quickSave(command, tab); });
-chrome.contextMenus.onClicked.addListener((info, tab) => { if (MENU_ITEMS[info.menuItemId]) quickSave(info.menuItemId, tab); });
+chrome.contextMenus.onClicked.addListener((info, tab) => { if (MENU_ITEMS[info.menuItemId]) quickSave(info.menuItemId, tab, 'menu'); });
 
 const busyTabs = new Set();
-async function quickSave(command, givenTab) {
+// A shortcut or menu save of a post already saved to the same place asks for
+// a second press instead (within 15 s, same tab and page) — easy to press
+// twice by accident, and a popup click never asks, for deliberate retries.
+let pendingRepeat = null;
+async function quickSave(command, givenTab, source = 'shortcut') {
   const first = givenTab?.id >= 0 ? givenTab : (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
   if (!first?.id || busyTabs.has(first.id)) return;
   // Read the tab again: its URL is visible once the shortcut or menu granted activeTab.
@@ -82,16 +86,70 @@ async function quickSave(command, givenTab) {
   let result;
   try {
     const { stackPosts = false } = await chrome.storage.local.get('stackPosts').catch(() => ({}));
-    result = await archiveActiveTab(destination, !isSupported(tab.url || ''), stackPosts === true, tab);
+    const repeat = pendingRepeat && pendingRepeat.tabId === tab.id && pendingRepeat.url === tab.url
+      && pendingRepeat.destination === destination && Date.now() < pendingRepeat.until;
+    pendingRepeat = null;
+    result = await archiveActiveTab(destination, !isSupported(tab.url || ''), stackPosts === true, tab, !repeat);
+    if (result.duplicate) {
+      pendingRepeat = { tabId: tab.id, url: tab.url, destination, until: Date.now() + 15_000 };
+      const again = source === 'menu' ? 'Choose it again' : `Press ${await shortcutOf(command) || 'the shortcut'} again`;
+      result.error = `Already saved to ${where} ${whenText(result.savedAt)}.\n${again} within 15 seconds to save anyway.`;
+    }
   } catch (error) {
     result = { ok: false, error: /cannot access|cannot be scripted|chrome:\/\//i.test(error.message) ? 'This page cannot be read by extensions.' : error.message };
   } finally {
     busyTabs.delete(tab.id);
   }
   const message = quickSummary(destination, result);
-  await showToast(tab.id, message, result.ok ? 'ok' : 'error');
-  await showBadge(tab.id, result.ok ? '✓' : '!', result.ok ? '#16a34a' : '#e0161f', message);
+  const state = result.ok ? 'ok' : result.duplicate ? 'repeat' : 'error';
+  await showToast(tab.id, message, state);
+  await showBadge(tab.id, { ok: '✓', repeat: '2×', error: '!' }[state], { ok: '#16a34a', repeat: '#d97706', error: '#e0161f' }[state], message);
   setTimeout(() => showBadge(tab.id, null, null, null), result.ok ? 4_000 : 10_000);
+}
+
+async function shortcutOf(command) {
+  try { return (await chrome.commands.getAll()).find(item => item.name === command)?.shortcut || ''; } catch { return ''; }
+}
+function whenText(time) {
+  const date = new Date(time), now = new Date();
+  const clock = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (date.toDateString() === now.toDateString()) return `today at ${clock}`;
+  if (date.toDateString() === new Date(now - 864e5).toDateString()) return `yesterday at ${clock}`;
+  return `on ${date.toLocaleDateString([], { day: 'numeric', month: 'short', year: date.getFullYear() === now.getFullYear() ? undefined : 'numeric' })}`;
+}
+
+// Saved posts, by address and destination, kept locally to spot repeats.
+// Only the post's address and the time are stored; the oldest are dropped.
+const SAVED_KEY = 'savedPosts';
+const SAVED_LIMIT = 5000;
+function postKey(url) {
+  try {
+    const address = new URL(url);
+    // Lower-case the host only: post codes (Instagram, Threads) are case-sensitive.
+    let host = address.hostname.toLowerCase().replace(/^(www|m|mobile)\./, '');
+    host = { 'threads.net': 'threads.com', 'twitter.com': 'x.com' }[host] || host;
+    const path = address.pathname.replace(/\/(media|photo\/\d+|video\/\d+)\/?$/, '').replace(/\/+$/, '')
+      .replace(/^\/(reel|reels|tv)\//, '/p/');
+    const video = host.endsWith('youtube.com') && address.searchParams.get('v');
+    return `${host}${path}${video ? `?v=${video}` : ''}`;
+  } catch { return ''; }
+}
+async function savedAt(key, destination) {
+  if (!key) return 0;
+  try { return (await chrome.storage.local.get(SAVED_KEY))[SAVED_KEY]?.[key]?.[destination] || 0; } catch { return 0; }
+}
+async function rememberSaved(key, destination) {
+  if (!key) return;
+  try {
+    const saved = (await chrome.storage.local.get(SAVED_KEY))[SAVED_KEY] || {};
+    saved[key] = { ...saved[key], [destination]: Date.now() };
+    const keys = Object.keys(saved);
+    if (keys.length > SAVED_LIMIT) {
+      keys.sort((a, b) => Math.max(...Object.values(saved[a])) - Math.max(...Object.values(saved[b])))
+        .slice(0, keys.length - SAVED_LIMIT).forEach(old => delete saved[old]);
+    }
+    await chrome.storage.local.set({ [SAVED_KEY]: saved });
+  } catch { /* storage unavailable: no repeat check */ }
 }
 
 function quickSummary(destination, result) {
@@ -133,7 +191,7 @@ async function showToast(tabId, text, state) {
              box-shadow:0 8px 28px rgba(0,0,0,.35);white-space:pre-line;transition:opacity .25s,transform .25s}
           .t.hide{opacity:0;transform:translateY(8px)}
           .i{flex:none;width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;color:#fff}
-          .busy .i{background:#6b7280}.ok .i{background:#16a34a}.error .i{background:#e0161f}
+          .busy .i{background:#6b7280}.ok .i{background:#16a34a}.error .i{background:#e0161f}.repeat .i{background:#d97706}
         </style><div class="t"><span class="i"></span><span class="m"></span></div>`;
         host._root = root;
         (document.body || document.documentElement).append(host);
@@ -141,18 +199,18 @@ async function showToast(tabId, text, state) {
       const box = host._root?.querySelector('.t');
       if (!box) return;
       box.className = `t ${state}`;
-      box.querySelector('.i').textContent = state === 'ok' ? '✓' : state === 'error' ? '!' : '…';
+      box.querySelector('.i').textContent = { ok: '✓', error: '!', repeat: '2' }[state] || '…';
       box.querySelector('.m').textContent = text;
       clearTimeout(host._timer);
       if (state !== 'busy') host._timer = setTimeout(() => {
         box.classList.add('hide');
         setTimeout(() => host.remove(), 300);
-      }, state === 'ok' ? 3_500 : 8_000);
+      }, state === 'ok' ? 3_500 : state === 'repeat' ? 15_000 : 8_000);
     } });
   } catch { /* page cannot be scripted */ }
 }
 
-async function archiveActiveTab(destination = 'downloads', universal = false, stack = false, givenTab = null) {
+async function archiveActiveTab(destination = 'downloads', universal = false, stack = false, givenTab = null, checkDuplicate = false) {
   const tab = givenTab || (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
   if (!tab?.id || !tab.url) throw new Error('Could not find active tab.');
   if (!universal && !isSupported(tab.url)) return { ok: false, error: 'Open a post on a supported site — or enable I feel lucky.' };
@@ -179,7 +237,16 @@ async function archiveActiveTab(destination = 'downloads', universal = false, st
   }
 
   const uniqueMedia = [...new Map(post.media.map(item => [item.url, item])).values()];
-  if (destination === 'eagle') return { ...(await saveToEagle(post, uniqueMedia, stack)), note: post.note || '' };
+  const key = postKey(post.url);
+  if (checkDuplicate) {
+    const at = await savedAt(key, destination);
+    if (at) return { ok: false, duplicate: true, savedAt: at };
+  }
+  if (destination === 'eagle') {
+    const result = { ...(await saveToEagle(post, uniqueMedia, stack)), note: post.note || '' };
+    if (result.ok) await rememberSaved(key, destination);
+    return result;
+  }
 
   // One flat folder, no subfolder per post. Every file of a post shares a base
   // name, so they sort together and never overwrite another post's files:
@@ -212,6 +279,7 @@ async function archiveActiveTab(destination = 'downloads', universal = false, st
   const mediaCount = count('complete');
   const failed = count('interrupted');
   if (failed === uniqueMedia.length) return { ok: false, error: 'Downloads failed. Media links may have expired: reload the page and retry.' };
+  await rememberSaved(key, destination);
   return { ok: true, mediaCount, pending: count('in_progress'), failed, renamed: await renamedByAnotherExtension(ids), note: post.note || '' };
 }
 
