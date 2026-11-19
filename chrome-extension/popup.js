@@ -2,15 +2,20 @@ const status = document.querySelector('#status');
 const lucky = document.querySelector('#i-feel-lucky');
 const stack = document.querySelector('#stack-posts');
 
-// Per-browser preferences; the extension has no storage permission.
+// Popup preferences live in this browser's localStorage.
 const prefs = {
   get: key => { try { return localStorage.getItem(key); } catch { return null; } },
   set: (key, value) => { try { localStorage.setItem(key, value); } catch { /* private mode */ } }
 };
 
+// The shortcut and right-click menu run without the popup, so the background
+// reads Stack posts from extension storage; keep it in step.
+const syncStack = () => chrome.storage?.local.set({ stackPosts: stack.checked }).catch(() => {});
 stack.checked = prefs.get('stackPosts') === '1';
+syncStack();
 stack.addEventListener('change', () => {
   prefs.set('stackPosts', stack.checked ? '1' : '0');
+  syncStack();
   // The first time stacks are turned on, show the guide: they need a smart
   // folder in Eagle that only the user can create.
   const seen = prefs.get('stackGuideSeen') === '1';
@@ -36,6 +41,11 @@ helpButton.addEventListener('click', () => {
 // What's new: the background marks the toolbar icon NEW after an update;
 // the popup shows this version's highlights until dismissed.
 const WHATS_NEW = {
+  '0.2.6': [
+    'Save without opening the popup: Alt+Shift+S to Eagle, Alt+Shift+D to Downloads.',
+    'Or right-click a post: Save post to Eagle / to Downloads.',
+    'A short notice in the page corner shows what was saved.'
+  ],
   '0.2.5': [
     'A cleaner popup: press ? for explanations and the list of sites.',
     'Photo-only posts from X save again.',
@@ -116,3 +126,15 @@ async function requestCurrentSitePermission() {
   const granted = await chrome.permissions.request({ origins: [`${origin}/*`] });
   if (!granted) throw new Error('Permission for this site was not granted.');
 }
+
+// Show the keys actually set (the user may have changed or removed them).
+chrome.commands?.getAll?.().then(commands => {
+  for (const { name, shortcut } of commands) {
+    const key = document.querySelector(name === 'save-to-eagle' ? '#key-eagle' : name === 'save-to-downloads' ? '#key-downloads' : null);
+    if (key) key.textContent = shortcut || 'no key set';
+  }
+}).catch(() => {});
+document.querySelector('#change-keys').addEventListener('click', event => {
+  event.preventDefault();
+  chrome.tabs.create({ url: 'chrome://extensions/shortcuts' });
+});

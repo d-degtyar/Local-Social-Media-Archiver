@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.6 — Unreleased
+
+- Save without opening the popup: keyboard shortcuts Alt+Shift+S (to Eagle) and Alt+Shift+D (to Downloads), changeable in chrome://extensions/shortcuts, and "Save post to Eagle / to Downloads" in the right-click menu on pages, images, videos and links.
+- Shortcut and menu saves use the popup's Stack posts setting and work on any site through the same access a popup click gives (activeTab), so unsupported sites are tried without a permission prompt.
+- The result appears as a short notice in the corner of the page and on the toolbar badge (✓ or !, with the message as the icon's tooltip).
+- The popup's help (?) shows the current keys and a link to change them.
+- New permissions: contextMenus (the right-click items) and storage (keeps the Stack posts setting for shortcut saves). Neither adds an install warning.
+
 ## 0.2.5 — Unreleased
 
 - Popup opens compact for new users; ? shows the explanations.

@@ -51,8 +51,109 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   return true;
 });
 
-async function archiveActiveTab(destination = 'downloads', universal = false, stack = false) {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+// Save without opening the popup: a keyboard shortcut (Alt+Shift+S / D by
+// default, changeable in chrome://extensions/shortcuts) or the right-click
+// menu. Both grant activeTab for the tab, the same access a popup click gives,
+// so any site can be tried without a permission prompt. The popup mirrors its
+// Stack posts option into storage for this; the result shows as a short toast
+// on the page and on the toolbar badge.
+const MENU_ITEMS = { 'save-to-eagle': 'Save post to Eagle', 'save-to-downloads': 'Save post to Downloads' };
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus.removeAll(() => {
+    for (const [id, title] of Object.entries(MENU_ITEMS)) {
+      chrome.contextMenus.create({ id, title, contexts: ['page', 'image', 'video', 'link'], documentUrlPatterns: ['http://*/*', 'https://*/*'] });
+    }
+  });
+});
+chrome.commands.onCommand.addListener((command, tab) => { if (MENU_ITEMS[command]) quickSave(command, tab); });
+chrome.contextMenus.onClicked.addListener((info, tab) => { if (MENU_ITEMS[info.menuItemId]) quickSave(info.menuItemId, tab); });
+
+const busyTabs = new Set();
+async function quickSave(command, givenTab) {
+  const first = givenTab?.id >= 0 ? givenTab : (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
+  if (!first?.id || busyTabs.has(first.id)) return;
+  // Read the tab again: its URL is visible once the shortcut or menu granted activeTab.
+  const tab = await chrome.tabs.get(first.id).catch(() => first);
+  busyTabs.add(tab.id);
+  const destination = command === 'save-to-eagle' ? 'eagle' : 'downloads';
+  const where = destination === 'eagle' ? 'Eagle' : 'Downloads';
+  await showBadge(tab.id, '…', '#6b7280', `Saving to ${where}…`);
+  await showToast(tab.id, `Saving to ${where}…`, 'busy');
+  let result;
+  try {
+    const { stackPosts = false } = await chrome.storage.local.get('stackPosts').catch(() => ({}));
+    result = await archiveActiveTab(destination, !isSupported(tab.url || ''), stackPosts === true, tab);
+  } catch (error) {
+    result = { ok: false, error: /cannot access|cannot be scripted|chrome:\/\//i.test(error.message) ? 'This page cannot be read by extensions.' : error.message };
+  } finally {
+    busyTabs.delete(tab.id);
+  }
+  const message = quickSummary(destination, result);
+  await showToast(tab.id, message, result.ok ? 'ok' : 'error');
+  await showBadge(tab.id, result.ok ? '✓' : '!', result.ok ? '#16a34a' : '#e0161f', message);
+  setTimeout(() => showBadge(tab.id, null, null, null), result.ok ? 4_000 : 10_000);
+}
+
+function quickSummary(destination, result) {
+  if (!result?.ok) return result?.error || 'Nothing was saved.';
+  const lines = [destination === 'eagle'
+    ? `Saved to Eagle: ${result.mediaCount} media.`
+    : `Saved to Downloads: ${result.mediaCount + (result.pending || 0)} media + note.`];
+  if (result.failed) lines.push(`${result.failed} failed. Links may have expired: reload the page and retry.`);
+  if (result.renamed) lines.push('Another extension renamed the files; open the popup for details.');
+  if (result.note) lines.push(result.note);
+  return lines.join('\n');
+}
+
+// A tab-specific badge; null text falls back to the global one (e.g. NEW).
+async function showBadge(tabId, text, color, title) {
+  try {
+    await chrome.action.setBadgeText({ tabId, text });
+    if (color) await chrome.action.setBadgeBackgroundColor({ tabId, color });
+    await chrome.action.setTitle({ tabId, title: title || chrome.runtime.getManifest().action.default_title });
+  } catch { /* tab closed */ }
+}
+
+// A small notice in the page's corner, in a closed shadow root so the site's
+// styles neither change it nor see it. Pages extensions cannot script
+// (chrome://, the Web Store) keep the badge only.
+async function showToast(tabId, text, state) {
+  try {
+    await chrome.scripting.executeScript({ target: { tabId }, args: [text, state], func: (text, state) => {
+      const ID = 'local-social-archiver-toast';
+      let host = document.getElementById(ID);
+      if (!host) {
+        host = document.createElement('div');
+        host.id = ID;
+        host.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:2147483647;';
+        const root = host.attachShadow({ mode: 'closed' });
+        root.innerHTML = `<style>
+          .t{display:flex;gap:10px;align-items:flex-start;max-width:340px;padding:12px 14px;border-radius:12px;
+             background:#1c1c1f;color:#f4f4f5;font:500 13px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif;
+             box-shadow:0 8px 28px rgba(0,0,0,.35);white-space:pre-line;transition:opacity .25s,transform .25s}
+          .t.hide{opacity:0;transform:translateY(8px)}
+          .i{flex:none;width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;color:#fff}
+          .busy .i{background:#6b7280}.ok .i{background:#16a34a}.error .i{background:#e0161f}
+        </style><div class="t"><span class="i"></span><span class="m"></span></div>`;
+        host._root = root;
+        (document.body || document.documentElement).append(host);
+      }
+      const box = host._root?.querySelector('.t');
+      if (!box) return;
+      box.className = `t ${state}`;
+      box.querySelector('.i').textContent = state === 'ok' ? '✓' : state === 'error' ? '!' : '…';
+      box.querySelector('.m').textContent = text;
+      clearTimeout(host._timer);
+      if (state !== 'busy') host._timer = setTimeout(() => {
+        box.classList.add('hide');
+        setTimeout(() => host.remove(), 300);
+      }, state === 'ok' ? 3_500 : 8_000);
+    } });
+  } catch { /* page cannot be scripted */ }
+}
+
+async function archiveActiveTab(destination = 'downloads', universal = false, stack = false, givenTab = null) {
+  const tab = givenTab || (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
   if (!tab?.id || !tab.url) throw new Error('Could not find active tab.');
   if (!universal && !isSupported(tab.url)) return { ok: false, error: 'Open a post on a supported site — or enable I feel lucky.' };
 
