@@ -36,6 +36,11 @@ helpButton.addEventListener('click', () => {
 // What's new: the background marks the toolbar icon NEW after an update;
 // the popup shows this version's highlights until dismissed.
 const WHATS_NEW = {
+  '0.2.6': [
+    'Threads: saves the post you opened, with its videos, also when you came from the feed.',
+    'Sharper saves: full-size Threads and Instagram photos.',
+    'YouTube: HD covers on slow connections instead of 640×480.'
+  ],
   '0.2.5': [
     'A cleaner popup: press ? for explanations and the list of sites.',
     'Photo-only posts from X save again.',

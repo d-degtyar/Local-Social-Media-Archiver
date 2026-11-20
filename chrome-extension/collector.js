@@ -3,6 +3,13 @@
   globalThis.__localSocialMediaCollectorInstalled = true;
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    // In a background tab the extension opened on a Threads post: its data.
+    // Threads streams the page: early parts carry a preview of the post, the
+    // full data comes later, so report whether the page has finished loading.
+    if (message.type === 'THREADS_POST_DATA') {
+      sendResponse({ post: postFromPageJson(String(message.code || '')), complete: document.readyState === 'complete' });
+      return;
+    }
     if (message.type !== 'COLLECT_POST') return;
     collectPost().then(sendResponse)
       .catch(error => sendResponse({ error: error.message, media: [] }));
@@ -15,29 +22,47 @@
     if (platform === 'x') return collectXPost();
     if (platform === 'youtube') return collectYouTubeVideo();
     if (platform === 'vimeo') return collectVimeoVideo();
-    const root = findPostRoot(platform);
+    // Threads keeps earlier pages and the feed in the document after moving
+    // inside the site, so "the first post on the page" can be another post.
+    // Only the block that links to this post's code counts as the post.
+    const threadsCode = platform === 'threads' ? threadsPostCode() : '';
+    const root = platform === 'threads' ? threadsRoot(threadsCode) : findPostRoot(platform);
     // Deliberately collect only elements rendered inside the post. A previous
     // performance-resource fallback also picked up feed previews and avatars.
     // Instagram carousels allow up to 20 items. This hard cap is also a safety
     // net if a platform changes its markup and the root becomes a feed.
-    const instagramPost = platform === 'instagram' ? instagramPostData() || await fetchInstagramMedia() : null;
+    const instagramPost = platform === 'instagram' ? await instagramPostFullSize() : null;
     const instagramMedia = instagramPost ? mediaFromInstagramNode(instagramPost) : [];
-    const domMedia = collectMedia(root);
+    // Without the open post's block, Threads gets no page-wide fallback: it
+    // would collect the feed or an earlier post.
+    const domMedia = platform === 'threads' && !root ? [] : collectMedia(root);
     const linkedInEmbed = platform === 'linkedin' ? await collectLinkedInEmbed() : null;
     const redditPost = platform === 'reddit' ? await collectRedditPost() : null;
     // Threads streams video to its player as blob: data, so the page's own
     // post JSON (the Instagram media format) is the only source of the MP4.
-    const threadsPost = platform === 'threads' ? threadsPostData() : null;
+    const threadsData = platform === 'threads' ? await threadsPostData(threadsCode) : null;
+    const threadsPost = threadsData?.post || null;
     let threadsMedia = threadsPost ? mediaFromInstagramNode(threadsPost) : [];
     let threadsNote = '';
-    // The page data may describe a video post by its cover only. When the
-    // post has a player (or the data says video, media_type 2), take the file
-    // from the player or from what the page downloaded instead of the cover.
-    if (threadsPost && !threadsMedia.some(item => item.kind === 'video')
-      && (Number(threadsPost.media_type) === 2 || root?.querySelector('video'))) {
-      const video = threadsVideoFromPage(root);
-      if (video) threadsMedia = threadsMedia.length <= 1 ? [video] : [...threadsMedia, video];
-      else threadsNote = 'Only the cover was found: play the video for a second, then save again.';
+    let incomplete = false;
+    // The data may still describe a video by its cover only (a single video
+    // post or one slide of a carousel). Take the file from the post's player
+    // or from what the page downloaded while the post was open.
+    if (threadsPost) {
+      const missing = missingVideos(threadsPost);
+      const playerOnly = !missing.length && !threadsMedia.some(item => item.kind === 'video') && root?.querySelector('video');
+      if (missing.length || playerOnly) {
+        const video = threadsVideoFromPage(root, threadsPost);
+        threadsData.steps.push(`player/cache: ${video ? 'found' : 'nothing'}`);
+        const slot = missing.length ? postNodes(threadsPost).indexOf(missing[0]) : -1;
+        if (video && threadsMedia.length <= 1) threadsMedia = [video];
+        else if (video && slot >= 0) threadsMedia[slot] = video;
+        else if (video) threadsMedia.push(video);
+        if (!video && missing.length) {
+          incomplete = true;
+          threadsNote = `Threads did not hand over the video, so only its cover was saved (${threadsData.steps.join('; ')}). Play the video for a second, then save again.`;
+        }
+      }
     }
     // Do not add a network fallback when the structured Instagram data already
     // supplied a video: it is commonly a byte-range copy of the same Reel.
@@ -70,7 +95,7 @@
     merged = merged.slice(0, MAX_MEDIA);
     return {
       platform,
-      url: location.href,
+      url: threadsCode && threadsPost ? `${location.origin}/@${instagramAuthor(threadsPost) || location.pathname.split('/')[1]?.replace(/^@/, '')}/post/${threadsCode}` : location.href,
       title: redditPost?.title || document.querySelector('meta[property="og:title"]')?.content || document.title,
       author: platform === 'instagram' || threadsPost
         ? instagramAuthor(instagramPost || threadsPost)
@@ -82,7 +107,10 @@
       // blob: and MediaSource streams cannot be downloaded by URL. Report them
       // so the popup can explain why a visible video was not saved.
       streamedVideo: !merged.some(item => item.kind === 'video') && hasStreamedVideo(root),
-      note: merged.some(item => item.kind === 'video') ? '' : threadsNote
+      note: threadsNote,
+      // A cover saved in place of a video: not recorded as saved, so saving
+      // again never meets the repeat warning.
+      incomplete
     };
   }
 
@@ -181,13 +209,38 @@
   }
   function wait(milliseconds) { return new Promise(resolve => setTimeout(resolve, milliseconds)); }
 
+  // After moving around Instagram without a reload, the page data can hold the
+  // post only as a feed or grid preview (640 or 720 px wide). When its photos
+  // are smaller than their originals, ask Instagram's API for the full post.
+  async function instagramPostFullSize() {
+    const inline = instagramPostData();
+    if (inline && !looksDownscaled(inline)) return inline;
+    const fromApi = await fetchInstagramMedia();
+    if (!inline) return fromApi;
+    return fromApi && smallestPhotoWidth(fromApi) > smallestPhotoWidth(inline) ? fromApi : inline;
+  }
+  function photoNodes(post) {
+    const nodes = Array.isArray(post.carousel_media) && post.carousel_media.length ? post.carousel_media : [post];
+    return nodes.filter(node => !node.video_versions?.length && node.image_versions2?.candidates?.length);
+  }
+  // The width of the post's least sharp photo, each at its best size.
+  function smallestPhotoWidth(post) {
+    return Math.min(...photoNodes(post).map(node => bestInstagramVariant(node.image_versions2.candidates)?.width || 0), Infinity);
+  }
+  function looksDownscaled(post) {
+    return photoNodes(post).some(node => {
+      const best = bestInstagramVariant(node.image_versions2.candidates)?.width || 0;
+      const original = node.original_width || post.original_width || 0;
+      return original ? best < original && best < 1080 : best > 0 && best < 1080;
+    });
+  }
   function instagramPostData() {
     const shortcode = instagramShortcode();
     if (!shortcode) return null;
     return postFromPageJson(shortcode);
   }
-  function postFromPageJson(shortcode) {
-    const scripts = [...document.querySelectorAll('script[type="application/json"], script:not([src])')];
+  function postFromPageJson(shortcode, doc = document) {
+    const scripts = [...doc.querySelectorAll('script[type="application/json"], script:not([src])')];
     // A page can describe the same post more than once: a preview with only
     // the cover, and the full post with its video or every carousel slide.
     // Collect every match and keep the richest.
@@ -198,7 +251,52 @@
       if (!text.includes(shortcode) || text.length > 20_000_000) continue;
       try { collectInstagramPosts(JSON.parse(text), shortcode, found); } catch { /* Not every inline script contains JSON. */ }
     }
-    return found.sort((a, b) => postRichness(b) - postRichness(a))[0] || null;
+    const post = found.sort((a, b) => postRichness(b) - postRichness(a))[0] || null;
+    if (post) upgradeImageCandidates(post, found, scripts);
+    return post;
+  }
+  // The richest description is not always the sharpest: Threads can describe
+  // the same photo once with full-size candidates and once as a 640px preview.
+  // Give each photo of the chosen post every candidate the page has for it:
+  // from the other descriptions (matched by media id) and from the <img>
+  // srcsets in the page (matched by the CDN file name, which every size of
+  // one photo shares). bestInstagramVariant then takes the largest.
+  function upgradeImageCandidates(post, found, scripts) {
+    const nodesOf = item => Array.isArray(item.carousel_media) && item.carousel_media.length ? item.carousel_media : [item];
+    const idOf = node => String(node.pk || node.id || '').split('_')[0];
+    const nodes = nodesOf(post).filter(node => node.image_versions2?.candidates);
+    if (!nodes.length) return;
+    const ids = new Set(nodes.map(idOf).filter(Boolean));
+    const extra = new Map();
+    const add = (key, candidates) => { if (key && Array.isArray(candidates)) extra.set(key, [...(extra.get(key) || []), ...candidates]); };
+    const visit = (value, depth = 0) => {
+      if (!value || typeof value !== 'object' || depth > 40) return;
+      if (Array.isArray(value)) { for (const item of value) visit(item, depth + 1); return; }
+      if (value.image_versions2?.candidates && ids.has(idOf(value))) add(idOf(value), value.image_versions2.candidates);
+      for (const child of Object.values(value)) visit(child, depth + 1);
+    };
+    for (const other of found) if (other !== post) visit(other);
+    for (const script of scripts) {
+      const text = script.textContent || '';
+      if (text.length > 20_000_000 || ![...ids].some(id => text.includes(id))) continue;
+      try { visit(JSON.parse(text)); } catch { /* not JSON */ }
+    }
+    const fileOf = url => { try { return new URL(url, location.href).pathname.split('/').pop(); } catch { return ''; } };
+    const domSizes = new Map();
+    for (const image of document.querySelectorAll('img[srcset], img[src*="cdninstagram"], img[src*="fbcdn"]')) {
+      const entries = (image.getAttribute('srcset') || '').split(',').map(entry => entry.trim().split(/\s+/))
+        .filter(([url]) => url).map(([url, size]) => ({ url: new URL(url, location.href).href, width: parseFloat(size) || 0, height: 0 }));
+      if (image.currentSrc || image.src) entries.push({ url: image.currentSrc || image.src, width: image.naturalWidth || 0, height: image.naturalHeight || 0 });
+      for (const entry of entries) { const file = fileOf(entry.url); if (file) domSizes.set(file, [...(domSizes.get(file) || []), entry]); }
+    }
+    for (const node of nodes) {
+      const own = node.image_versions2.candidates;
+      const files = new Set(own.map(candidate => fileOf(candidate.url)).filter(Boolean));
+      const fromDom = [...files].flatMap(file => domSizes.get(file) || [])
+        // srcset gives a width only; estimate the height from the photo's shape.
+        .map(entry => entry.height || !own[0]?.width ? entry : { ...entry, height: Math.round(entry.width * (own[0].height || 0) / own[0].width) });
+      node.image_versions2 = { ...node.image_versions2, candidates: [...own, ...(extra.get(idOf(node)) || []), ...fromDom] };
+    }
   }
   function postRichness(post) {
     const nodes = Array.isArray(post.carousel_media) && post.carousel_media.length ? post.carousel_media : [post];
@@ -248,9 +346,54 @@
     const match = document.documentElement.innerHTML.match(/"(?:X-IG-App-ID|APP_ID)":"(\d{6,})"/);
     return match?.[1] || '936619743392459';
   }
-  function threadsPostData() {
-    const code = threadsPostCode();
-    return code ? postFromPageJson(code) : null;
+  // The page's inline data describes the post only when the page was loaded
+  // on it. After moving inside Threads, it holds the post at best as a feed
+  // preview. Then load this post's own page and read its data from there.
+  // The page's inline data describes the post only when the page was loaded
+  // on it. After moving inside Threads (from the feed, a profile, search), the
+  // post arrived by a request whose answer is not in the document. Threads
+  // sends the full post data only to a real page load (a script's request for
+  // the same address gets the cover alone), so the background opens the post
+  // in a background tab for a moment and reads it there.
+  async function threadsPostData(code) {
+    const steps = [];
+    if (!code) return { post: null, steps: ['no post code in the address'] };
+    let post = postFromPageJson(code);
+    steps.push(`page data: ${describeThreadsPost(post)}`);
+    if (post && !looksDownscaled(post) && !missingVideos(post).length) return { post, steps };
+    const user = (location.pathname.match(/^\/(@[^/]+)\//) || [])[1] || (post ? `@${instagramAuthor(post)}` : '');
+    try {
+      const answer = await chrome.runtime.sendMessage({ type: 'THREADS_LOAD_POST', url: `${location.origin}${user ? `/${user}/post/${code}` : `/t/${code}`}` });
+      const found = answer?.post || null;
+      steps.push(`post page: ${answer?.error || describeThreadsPost(found)}`);
+      if (found && (!post || postNodes(found).length >= postNodes(post).length && missingVideos(found).length <= missingVideos(post).length)) post = found;
+    } catch (error) { steps.push(`post page: ${error.message}`); }
+    return { post, steps };
+  }
+  function postNodes(post) {
+    return Array.isArray(post?.carousel_media) && post.carousel_media.length ? post.carousel_media : post ? [post] : [];
+  }
+  // A video known only by its cover: the data says video but lists no file.
+  function missingVideos(post) {
+    return postNodes(post).filter(node => (Number(node.media_type) === 2 || Number(node.video_duration) > 0 || node.video_dash_manifest)
+      && !node.video_versions?.some(item => /^https?:/i.test(item?.url || '')));
+  }
+  function describeThreadsPost(post) {
+    if (!post) return 'no post data';
+    const nodes = postNodes(post);
+    const videos = nodes.filter(node => node.video_versions?.length || Number(node.media_type) === 2 || Number(node.video_duration) > 0);
+    return `${nodes.length} item(s), ${videos.length - missingVideos(post).length}/${videos.length} videos with a file`;
+  }
+  // The block of the open post: the one with a visible link to its code (its
+  // timestamp). Replies carry their own codes, the feed and earlier pages too.
+  function threadsRoot(code) {
+    if (!code) return null;
+    for (const link of document.querySelectorAll(`a[href*="/post/${code}"]`)) {
+      if (!link.getClientRects().length) continue;
+      const box = link.closest('[data-pressable-container]') || link.closest('article');
+      if (box) return box;
+    }
+    return null;
   }
   // /@username/post/<code>; the code identifies the post like an Instagram
   // shortcode. Share links (/share/<id>) carry no code: read it from the
@@ -294,16 +437,26 @@
     return variants.filter(item => item && /^https?:/i.test(item.url || ''))
       .sort((a, b) => ((b.width || 0) * (b.height || 0)) - ((a.width || 0) * (a.height || 0)))[0] || null;
   }
-  function threadsVideoFromPage(root) {
-    const fromPlayer = [...(root || document).querySelectorAll('video')]
+  function threadsVideoFromPage(root, post) {
+    if (!root) return null;
+    const fromPlayer = [...root.querySelectorAll('video')]
       .flatMap(video => [video.currentSrc, video.src, ...[...video.querySelectorAll('source')].map(source => source.src)])
       .find(url => /^https:/i.test(url || ''));
     if (fromPlayer) return { url: fromPlayer, kind: 'video' };
     // A streamed player fetches the MP4 in byte ranges; without the range
-    // parameters the same address serves the whole file.
-    const entry = performance.getEntriesByType('resource')
+    // parameters the same address serves the whole file. The tab has also
+    // loaded videos from the feed and earlier posts: consider only video
+    // loaded after this post's cover first appeared, and take the most recent
+    // one, i.e. the video that played while the post was open.
+    const coverFiles = (post?.image_versions2?.candidates || [])
+      .map(item => { try { return new URL(item.url).pathname.split('/').pop(); } catch { return ''; } }).filter(Boolean);
+    const resources = performance.getEntriesByType('resource');
+    const coverLoaded = Math.min(...resources.filter(item => coverFiles.some(file => item.name.includes(file))).map(item => item.startTime));
+    if (!Number.isFinite(coverLoaded)) return null;
+    const entry = resources
+      .filter(item => item.startTime >= coverLoaded)
       .filter(item => /(?:cdninstagram|fbcdn)\./i.test(item.name) && /\.mp4(?:\?|$)/i.test(item.name))
-      .sort((a, b) => (b.transferSize || b.encodedBodySize || 0) - (a.transferSize || a.encodedBodySize || 0))[0];
+      .sort((a, b) => b.startTime - a.startTime)[0];
     if (!entry) return null;
     const url = new URL(entry.name);
     url.searchParams.delete('bytestart');
@@ -525,7 +678,7 @@
     const videoId = youTubeVideoId();
     const isShort = location.pathname.startsWith('/shorts/');
     const details = videoId ? await youTubeDetails(videoId) : null;
-    const cover = videoId ? await youTubeCover(videoId) : '';
+    const cover = videoId ? await youTubeCover(videoId, details?.thumbnails) : '';
     const title = details?.title || '';
     const description = details?.description || '';
     return {
@@ -577,7 +730,8 @@
     try {
       const details = start >= 0 ? JSON.parse(balancedJson(text, start))?.videoDetails : null;
       if (details?.videoId !== videoId) return null;
-      return { title: details.title || '', channel: details.author || '', description: (details.shortDescription || '').trim() };
+      return { title: details.title || '', channel: details.author || '', description: (details.shortDescription || '').trim(),
+        thumbnails: details.thumbnail?.thumbnails || [] };
     } catch { return null; }
   }
   function balancedJson(text, start) { return balanced(text, start, '{', '}'); }
@@ -595,19 +749,25 @@
     }
     return '';
   }
-  async function youTubeCover(videoId) {
-    // Largest first. maxresdefault exists only for HD uploads; a missing size
-    // answers 404, so try each in turn and keep the first that loads.
-    for (const size of ['maxresdefault', 'sddefault', 'hqdefault']) {
-      const url = `https://i.ytimg.com/vi/${videoId}/${size}.jpg`;
-      if (await imageLoads(url)) return url;
-    }
+  async function youTubeCover(videoId, thumbnails = []) {
+    const base = `https://i.ytimg.com/vi/${videoId}`;
+    // The video's own data lists its covers; when it names an HD one, that
+    // settles it without a network check.
+    const widest = Math.max(0, ...thumbnails.map(item => item?.width || 0));
+    if (widest >= 1280 || thumbnails.some(item => /maxresdefault/.test(item?.url || ''))) return `${base}/maxresdefault.jpg`;
+    // Otherwise check each size, largest first. maxresdefault exists only for
+    // HD uploads (a missing size answers with a 120px placeholder). Load all
+    // three at once and wait long enough for slow connections: a 4-second
+    // limit sent 640×480 covers to users on slow networks.
+    const sizes = ['maxresdefault', 'sddefault', 'hqdefault'];
+    const loads = sizes.map(size => imageLoads(`${base}/${size}.jpg`, 20_000));
+    for (const [index, size] of sizes.entries()) if (await loads[index]) return `${base}/${size}.jpg`;
     return '';
   }
-  function imageLoads(url) {
+  function imageLoads(url, limit = 4000) {
     return new Promise(resolve => {
       const image = new Image();
-      const timer = setTimeout(() => resolve(false), 4000);
+      const timer = setTimeout(() => resolve(false), limit);
       image.onload = () => { clearTimeout(timer); resolve(image.naturalWidth > 120); };
       image.onerror = () => { clearTimeout(timer); resolve(false); };
       image.src = url;
