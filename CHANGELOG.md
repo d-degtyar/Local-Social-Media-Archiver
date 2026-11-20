@@ -1,18 +1,21 @@
 # Changelog
 
-## 0.2.6 — Unreleased
+## 0.2.7 — Planned (code on hold, see the commit that moved it out of 0.2.6)
 
 - Save without opening the popup: keyboard shortcuts Alt+Shift+S (to Eagle) and Alt+Shift+D (to Downloads), changeable in chrome://extensions/shortcuts, and "Save post to Eagle / to Downloads" in the right-click menu on pages, images, videos and links.
 - Shortcut and menu saves use the popup's Stack posts setting and work on any site through the same access a popup click gives (activeTab), so unsupported sites are tried without a permission prompt.
 - The result appears as a short notice in the corner of the page and on the toolbar badge (✓ or !, with the message as the icon's tooltip).
 - The popup's help (?) shows the current keys and a link to change them.
 - Repeat warning for shortcut and menu saves: a post already saved to the same place (Eagle or Downloads) shows "Already saved … today at 14:20" instead; the same key or menu item again within 15 seconds saves it anyway. Popup buttons never ask, so deliberate retries stay one click. The extension remembers saved post addresses locally (up to 5,000) for this.
+- Test mode for development: an unpacked install opened as popup.html?test saves from the tab used just before it and can run the shortcut and menu path, so browser automation can test saves end to end. Store installs ignore it.
+- New permissions: contextMenus (the right-click items) and storage (keeps the Stack posts setting and the list of saved post addresses, locally). Neither adds an install warning.
+
+## 0.2.6 — Unreleased (bug fixes only)
+
 - Threads photos save at the largest size the page offers: when the page describes a post more than once (a 640px preview and the full post) or its images list bigger sizes in srcset, every photo takes its largest version, matched by media id or by the CDN file name. Instagram posts benefit the same way.
 - YouTube covers no longer drop to 640×480 on slow connections: the video's own data names its HD cover when there is one, and otherwise all sizes are checked at once with a 20-second limit instead of 4 seconds each.
 - Instagram: after moving around the site without a reload, the page data can hold a post only as a 640–720 px preview; when its photos are smaller than their originals, the full-size post is read from Instagram's API instead.
-- Threads: saves the open post, not an earlier one or a feed item, with its videos. After moving inside Threads (from the feed, a profile, search) the document holds no data for the open post, and Threads sends a post's full data (every slide, the video files) only to a real page load: a script's request for the same address gets the cover alone. The extension then opens the post in a muted background tab next to the current one for a second or two, reads the data once that page has finished loading, and closes it. The page-wide image fallback is gone: only the block linking to the post's code counts as the post (Threads keeps earlier pages and the feed in the document), and the video fallback takes only video loaded after the post's cover appeared, the most recent first. Videos are checked per carousel slide. When a video still cannot be found, the cover is saved with a note listing what each source answered, and the post is not recorded as saved, so saving again is not met by the repeat warning. The post's address is its canonical /@user/post/code link.
-- Test mode for development: an unpacked install opened as popup.html?test saves from the tab used just before it and can run the shortcut and menu path, so browser automation can test saves end to end. Store installs ignore it.
-- New permissions: contextMenus (the right-click items) and storage (keeps the Stack posts setting and the list of saved post addresses, locally). Neither adds an install warning.
+- Threads: saves the open post, not an earlier one or a feed item, with its videos. After moving inside Threads (from the feed, a profile, search) the document holds no data for the open post, and Threads sends a post's full data (every slide, the video files) only to a real page load: a script's request for the same address gets the cover alone. The extension then opens the post in a muted background tab next to the current one for a second or two, reads the data once that page has finished loading, and closes it. The page-wide image fallback is gone: only the block linking to the post's code counts as the post (Threads keeps earlier pages and the feed in the document), and the video fallback takes only video loaded after the post's cover appeared, the most recent first. Videos are checked per carousel slide. When a video still cannot be found, the cover is saved with a note listing what each source answered.
 
 ## 0.2.5 — Unreleased
 

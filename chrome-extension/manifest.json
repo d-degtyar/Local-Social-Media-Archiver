@@ -23,27 +23,7 @@
     "service_worker": "background.js",
     "type": "module"
   },
-  "commands": {
-    "save-to-eagle": {
-      "suggested_key": {
-        "default": "Alt+Shift+S"
-      },
-      "description": "Save the open post to Eagle"
-    },
-    "save-to-downloads": {
-      "suggested_key": {
-        "default": "Alt+Shift+D"
-      },
-      "description": "Save the open post to Downloads"
-    }
-  },
-  "permissions": [
-    "activeTab",
-    "scripting",
-    "downloads",
-    "contextMenus",
-    "storage"
-  ],
+  "permissions": ["activeTab", "scripting", "downloads"],
   "host_permissions": [
     "https://www.instagram.com/*",
     "https://www.threads.com/*",

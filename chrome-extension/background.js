@@ -50,187 +50,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     loadThreadsPost(message.url, sender.tab).then(sendResponse).catch(error => sendResponse({ post: null, error: error.message }));
     return true;
   }
-  // Test mode (popup.html?test, unpacked installs only): the popup page is a
-  // tab, so it names the tab to save from and can run the shortcut path.
-  if (message.type === 'TEST_QUICK_SAVE') {
-    (async () => {
-      if (!await isDevelopmentInstall()) return { error: 'Test mode needs an unpacked install.' };
-      const tab = await chrome.tabs.get(message.tabId);
-      return { message: await quickSave(message.command, tab, message.source === 'menu' ? 'menu' : 'shortcut') };
-    })().then(sendResponse).catch(error => sendResponse({ error: error.message }));
-    return true;
-  }
   if (message.type !== 'ARCHIVE_ACTIVE_TAB') return;
-  (async () => {
-    const tab = Number.isInteger(message.tabId) && await isDevelopmentInstall() ? await chrome.tabs.get(message.tabId) : null;
-    return archiveActiveTab(message.destination, message.universal === true, message.stack === true, tab);
-  })().then(sendResponse).catch(error => sendResponse({ ok: false, error: error.message }));
+  archiveActiveTab(message.destination, message.universal === true, message.stack === true).then(sendResponse).catch(error => sendResponse({ ok: false, error: error.message }));
   return true;
 });
-async function isDevelopmentInstall() {
-  try { return (await chrome.management.getSelf()).installType === 'development'; } catch { return false; }
-}
-
-// Save without opening the popup: a keyboard shortcut (Alt+Shift+S / D by
-// default, changeable in chrome://extensions/shortcuts) or the right-click
-// menu. Both grant activeTab for the tab, the same access a popup click gives,
-// so any site can be tried without a permission prompt. The popup mirrors its
-// Stack posts option into storage for this; the result shows as a short toast
-// on the page and on the toolbar badge.
-const MENU_ITEMS = { 'save-to-eagle': 'Save post to Eagle', 'save-to-downloads': 'Save post to Downloads' };
-chrome.runtime.onInstalled.addListener(() => {
-  chrome.contextMenus.removeAll(() => {
-    for (const [id, title] of Object.entries(MENU_ITEMS)) {
-      chrome.contextMenus.create({ id, title, contexts: ['page', 'image', 'video', 'link'], documentUrlPatterns: ['http://*/*', 'https://*/*'] });
-    }
-  });
-});
-chrome.commands.onCommand.addListener((command, tab) => { if (MENU_ITEMS[command]) quickSave(command, tab); });
-chrome.contextMenus.onClicked.addListener((info, tab) => { if (MENU_ITEMS[info.menuItemId]) quickSave(info.menuItemId, tab, 'menu'); });
-
-const busyTabs = new Set();
-// A shortcut or menu save of a post already saved to the same place asks for
-// a second press instead (within 15 s, same tab and page) — easy to press
-// twice by accident, and a popup click never asks, for deliberate retries.
-let pendingRepeat = null;
-async function quickSave(command, givenTab, source = 'shortcut') {
-  const first = givenTab?.id >= 0 ? givenTab : (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
-  if (!first?.id) return 'No tab to save from.';
-  if (busyTabs.has(first.id)) return 'Already saving in that tab.';
-  // Read the tab again: its URL is visible once the shortcut or menu granted activeTab.
-  const tab = await chrome.tabs.get(first.id).catch(() => first);
-  busyTabs.add(tab.id);
-  const destination = command === 'save-to-eagle' ? 'eagle' : 'downloads';
-  const where = destination === 'eagle' ? 'Eagle' : 'Downloads';
-  await showBadge(tab.id, '…', '#6b7280', `Saving to ${where}…`);
-  await showToast(tab.id, `Saving to ${where}…`, 'busy');
-  let result;
-  try {
-    const { stackPosts = false } = await chrome.storage.local.get('stackPosts').catch(() => ({}));
-    const repeat = pendingRepeat && pendingRepeat.tabId === tab.id && pendingRepeat.url === tab.url
-      && pendingRepeat.destination === destination && Date.now() < pendingRepeat.until;
-    pendingRepeat = null;
-    result = await archiveActiveTab(destination, !isSupported(tab.url || ''), stackPosts === true, tab, !repeat);
-    if (result.duplicate) {
-      pendingRepeat = { tabId: tab.id, url: tab.url, destination, until: Date.now() + 15_000 };
-      const again = source === 'menu' ? 'Choose it again' : `Press ${await shortcutOf(command) || 'the shortcut'} again`;
-      result.error = `Already saved to ${where} ${whenText(result.savedAt)}.\n${again} within 15 seconds to save anyway.`;
-    }
-  } catch (error) {
-    result = { ok: false, error: /cannot access|cannot be scripted|chrome:\/\//i.test(error.message) ? 'This page cannot be read by extensions.' : error.message };
-  } finally {
-    busyTabs.delete(tab.id);
-  }
-  const message = quickSummary(destination, result);
-  const state = result.ok ? 'ok' : result.duplicate ? 'repeat' : 'error';
-  await showToast(tab.id, message, state);
-  await showBadge(tab.id, { ok: '✓', repeat: '2×', error: '!' }[state], { ok: '#16a34a', repeat: '#d97706', error: '#e0161f' }[state], message);
-  setTimeout(() => showBadge(tab.id, null, null, null), result.ok ? 4_000 : 10_000);
-  return message;
-}
-
-async function shortcutOf(command) {
-  try { return (await chrome.commands.getAll()).find(item => item.name === command)?.shortcut || ''; } catch { return ''; }
-}
-function whenText(time) {
-  const date = new Date(time), now = new Date();
-  const clock = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  if (date.toDateString() === now.toDateString()) return `today at ${clock}`;
-  if (date.toDateString() === new Date(now - 864e5).toDateString()) return `yesterday at ${clock}`;
-  return `on ${date.toLocaleDateString([], { day: 'numeric', month: 'short', year: date.getFullYear() === now.getFullYear() ? undefined : 'numeric' })}`;
-}
-
-// Saved posts, by address and destination, kept locally to spot repeats.
-// Only the post's address and the time are stored; the oldest are dropped.
-const SAVED_KEY = 'savedPosts';
-const SAVED_LIMIT = 5000;
-function postKey(url) {
-  try {
-    const address = new URL(url);
-    // Lower-case the host only: post codes (Instagram, Threads) are case-sensitive.
-    let host = address.hostname.toLowerCase().replace(/^(www|m|mobile)\./, '');
-    host = { 'threads.net': 'threads.com', 'twitter.com': 'x.com' }[host] || host;
-    const path = address.pathname.replace(/\/(media|photo\/\d+|video\/\d+)\/?$/, '').replace(/\/+$/, '')
-      .replace(/^\/(reel|reels|tv)\//, '/p/');
-    const video = host.endsWith('youtube.com') && address.searchParams.get('v');
-    return `${host}${path}${video ? `?v=${video}` : ''}`;
-  } catch { return ''; }
-}
-async function savedAt(key, destination) {
-  if (!key) return 0;
-  try { return (await chrome.storage.local.get(SAVED_KEY))[SAVED_KEY]?.[key]?.[destination] || 0; } catch { return 0; }
-}
-async function rememberSaved(key, destination) {
-  if (!key) return;
-  try {
-    const saved = (await chrome.storage.local.get(SAVED_KEY))[SAVED_KEY] || {};
-    saved[key] = { ...saved[key], [destination]: Date.now() };
-    const keys = Object.keys(saved);
-    if (keys.length > SAVED_LIMIT) {
-      keys.sort((a, b) => Math.max(...Object.values(saved[a])) - Math.max(...Object.values(saved[b])))
-        .slice(0, keys.length - SAVED_LIMIT).forEach(old => delete saved[old]);
-    }
-    await chrome.storage.local.set({ [SAVED_KEY]: saved });
-  } catch { /* storage unavailable: no repeat check */ }
-}
-
-function quickSummary(destination, result) {
-  if (!result?.ok) return result?.error || 'Nothing was saved.';
-  const lines = [destination === 'eagle'
-    ? `Saved to Eagle: ${result.mediaCount} media.`
-    : `Saved to Downloads: ${result.mediaCount + (result.pending || 0)} media + note.`];
-  if (result.failed) lines.push(`${result.failed} failed. Links may have expired: reload the page and retry.`);
-  if (result.renamed) lines.push('Another extension renamed the files; open the popup for details.');
-  if (result.note) lines.push(result.note);
-  return lines.join('\n');
-}
-
-// A tab-specific badge; null text falls back to the global one (e.g. NEW).
-async function showBadge(tabId, text, color, title) {
-  try {
-    await chrome.action.setBadgeText({ tabId, text });
-    if (color) await chrome.action.setBadgeBackgroundColor({ tabId, color });
-    await chrome.action.setTitle({ tabId, title: title || chrome.runtime.getManifest().action.default_title });
-  } catch { /* tab closed */ }
-}
-
-// A small notice in the page's corner, in a closed shadow root so the site's
-// styles neither change it nor see it. Pages extensions cannot script
-// (chrome://, the Web Store) keep the badge only.
-async function showToast(tabId, text, state) {
-  try {
-    await chrome.scripting.executeScript({ target: { tabId }, args: [text, state], func: (text, state) => {
-      const ID = 'local-social-archiver-toast';
-      let host = document.getElementById(ID);
-      if (!host) {
-        host = document.createElement('div');
-        host.id = ID;
-        host.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:2147483647;';
-        const root = host.attachShadow({ mode: 'closed' });
-        root.innerHTML = `<style>
-          .t{display:flex;gap:10px;align-items:flex-start;max-width:340px;padding:12px 14px;border-radius:12px;
-             background:#1c1c1f;color:#f4f4f5;font:500 13px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif;
-             box-shadow:0 8px 28px rgba(0,0,0,.35);white-space:pre-line;transition:opacity .25s,transform .25s}
-          .t.hide{opacity:0;transform:translateY(8px)}
-          .i{flex:none;width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;color:#fff}
-          .busy .i{background:#6b7280}.ok .i{background:#16a34a}.error .i{background:#e0161f}.repeat .i{background:#d97706}
-        </style><div class="t"><span class="i"></span><span class="m"></span></div>`;
-        host._root = root;
-        (document.body || document.documentElement).append(host);
-      }
-      const box = host._root?.querySelector('.t');
-      if (!box) return;
-      box.className = `t ${state}`;
-      box.querySelector('.i').textContent = { ok: '✓', error: '!', repeat: '2' }[state] || '…';
-      box.querySelector('.m').textContent = text;
-      clearTimeout(host._timer);
-      if (state !== 'busy') host._timer = setTimeout(() => {
-        box.classList.add('hide');
-        setTimeout(() => host.remove(), 300);
-      }, state === 'ok' ? 3_500 : state === 'repeat' ? 15_000 : 8_000);
-    } });
-  } catch { /* page cannot be scripted */ }
-}
 
 // Threads sends a post's full data (every slide, the video files) only to a
 // real page load. After moving inside Threads the open tab lacks it, so open
@@ -263,8 +86,8 @@ async function loadThreadsPost(url, opener) {
   }
 }
 
-async function archiveActiveTab(destination = 'downloads', universal = false, stack = false, givenTab = null, checkDuplicate = false) {
-  const tab = givenTab || (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
+async function archiveActiveTab(destination = 'downloads', universal = false, stack = false) {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id || !tab.url) throw new Error('Could not find active tab.');
   if (!universal && !isSupported(tab.url)) return { ok: false, error: 'Open a post on a supported site — or enable I feel lucky.' };
 
@@ -292,16 +115,7 @@ async function archiveActiveTab(destination = 'downloads', universal = false, st
   }
 
   const uniqueMedia = [...new Map(post.media.map(item => [item.url, item])).values()];
-  const key = postKey(post.url);
-  if (checkDuplicate) {
-    const at = await savedAt(key, destination);
-    if (at) return { ok: false, duplicate: true, savedAt: at };
-  }
-  if (destination === 'eagle') {
-    const result = { ...(await saveToEagle(post, uniqueMedia, stack)), note: post.note || '' };
-    if (result.ok && !post.incomplete) await rememberSaved(key, destination);
-    return result;
-  }
+  if (destination === 'eagle') return { ...(await saveToEagle(post, uniqueMedia, stack)), note: post.note || '' };
 
   // One flat folder, no subfolder per post. Every file of a post shares a base
   // name, so they sort together and never overwrite another post's files:
@@ -334,7 +148,6 @@ async function archiveActiveTab(destination = 'downloads', universal = false, st
   const mediaCount = count('complete');
   const failed = count('interrupted');
   if (failed === uniqueMedia.length) return { ok: false, error: 'Downloads failed. Media links may have expired: reload the page and retry.' };
-  if (!post.incomplete) await rememberSaved(key, destination);
   return { ok: true, mediaCount, pending: count('in_progress'), failed, renamed: await renamedByAnotherExtension(ids), note: post.note || '' };
 }
 

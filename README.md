@@ -17,7 +17,6 @@ Save visual references from the web directly to [Eagle](https://eagle.cool/) or 
 - Any other site through **I feel lucky** — an opt-in, best-effort media collector
 - Eagle import with the original post URL, a clean title, tags, and caption/description
 - **Stack posts in Eagle** (optional): a post with several files gets its own folder under `Social Stacks`, and its first file the `Main Cover` tag. Make a smart folder (New Smart Folder) with the rule *Tags · Any · Main Cover* to browse one tile per post; the cover's folder, under Folders in the right-hand panel, holds the whole post. A step-by-step guide opens the first time you turn stacks on, and from **How stacks work** in the popup
-- **Save without the popup**: Alt+Shift+S saves the open post to Eagle, Alt+Shift+D to Downloads (change them in `chrome://extensions/shortcuts`), or right-click the page and choose *Save post to Eagle / to Downloads*. A short notice in the page corner shows the result, and warns before saving the same post twice (press again to save anyway)
 - Save to Downloads: one `Downloads/Local Social Archive` folder; each post's files share a name (the video or pin title, or platform, author, and time) with a `.txt` note holding the author, link, and caption
 
 > **I feel lucky** requests permission only for the site currently open in your tab. It is intended for public, browser-accessible media and does not guarantee support for every website.
