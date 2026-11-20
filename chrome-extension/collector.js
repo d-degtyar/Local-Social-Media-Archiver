@@ -15,19 +15,25 @@
     if (platform === 'x') return collectXPost();
     if (platform === 'youtube') return collectYouTubeVideo();
     if (platform === 'vimeo') return collectVimeoVideo();
-    const root = findPostRoot(platform);
+    // Threads keeps earlier pages and the feed in the document after moving
+    // inside the site, so "the first post on the page" can be another post.
+    // Only the block that links to this post's code counts as the post.
+    const threadsCode = platform === 'threads' ? threadsPostCode() : '';
+    const root = platform === 'threads' ? threadsRoot(threadsCode) : findPostRoot(platform);
     // Deliberately collect only elements rendered inside the post. A previous
     // performance-resource fallback also picked up feed previews and avatars.
     // Instagram carousels allow up to 20 items. This hard cap is also a safety
     // net if a platform changes its markup and the root becomes a feed.
     const instagramPost = platform === 'instagram' ? await instagramPostFullSize() : null;
     const instagramMedia = instagramPost ? mediaFromInstagramNode(instagramPost) : [];
-    const domMedia = collectMedia(root);
+    // Without the open post's block, Threads gets no page-wide fallback: it
+    // would collect the feed or an earlier post.
+    const domMedia = platform === 'threads' && !root ? [] : collectMedia(root);
     const linkedInEmbed = platform === 'linkedin' ? await collectLinkedInEmbed() : null;
     const redditPost = platform === 'reddit' ? await collectRedditPost() : null;
     // Threads streams video to its player as blob: data, so the page's own
     // post JSON (the Instagram media format) is the only source of the MP4.
-    const threadsPost = platform === 'threads' ? threadsPostData() : null;
+    const threadsPost = platform === 'threads' ? await threadsPostData(threadsCode) : null;
     let threadsMedia = threadsPost ? mediaFromInstagramNode(threadsPost) : [];
     let threadsNote = '';
     // The page data may describe a video post by its cover only. When the
@@ -35,7 +41,7 @@
     // from the player or from what the page downloaded instead of the cover.
     if (threadsPost && !threadsMedia.some(item => item.kind === 'video')
       && (Number(threadsPost.media_type) === 2 || root?.querySelector('video'))) {
-      const video = threadsVideoFromPage(root);
+      const video = threadsVideoFromPage(root, threadsPost);
       if (video) threadsMedia = threadsMedia.length <= 1 ? [video] : [...threadsMedia, video];
       else threadsNote = 'Only the cover was found: play the video for a second, then save again.';
     }
@@ -70,7 +76,7 @@
     merged = merged.slice(0, MAX_MEDIA);
     return {
       platform,
-      url: location.href,
+      url: threadsCode && threadsPost ? `${location.origin}/@${instagramAuthor(threadsPost) || location.pathname.split('/')[1]?.replace(/^@/, '')}/post/${threadsCode}` : location.href,
       title: redditPost?.title || document.querySelector('meta[property="og:title"]')?.content || document.title,
       author: platform === 'instagram' || threadsPost
         ? instagramAuthor(instagramPost || threadsPost)
@@ -211,8 +217,8 @@
     if (!shortcode) return null;
     return postFromPageJson(shortcode);
   }
-  function postFromPageJson(shortcode) {
-    const scripts = [...document.querySelectorAll('script[type="application/json"], script:not([src])')];
+  function postFromPageJson(shortcode, doc = document) {
+    const scripts = [...doc.querySelectorAll('script[type="application/json"], script:not([src])')];
     // A page can describe the same post more than once: a preview with only
     // the cover, and the full post with its video or every carousel slide.
     // Collect every match and keep the richest.
@@ -318,9 +324,36 @@
     const match = document.documentElement.innerHTML.match(/"(?:X-IG-App-ID|APP_ID)":"(\d{6,})"/);
     return match?.[1] || '936619743392459';
   }
-  function threadsPostData() {
-    const code = threadsPostCode();
-    return code ? postFromPageJson(code) : null;
+  // The page's inline data describes the post only when the page was loaded
+  // on it. After moving inside Threads, it holds the post at best as a feed
+  // preview. Then load this post's own page and read its data from there.
+  async function threadsPostData(code) {
+    if (!code) return null;
+    const inPage = postFromPageJson(code);
+    const complete = inPage && !looksDownscaled(inPage)
+      && !(Number(inPage.media_type) === 2 && !inPage.video_versions?.length);
+    if (complete) return inPage;
+    try {
+      const user = (location.pathname.match(/^\/(@[^/]+)\//) || [])[1] || (inPage ? `@${instagramAuthor(inPage)}` : '');
+      const response = await fetch(user ? `/${user}/post/${code}` : `/t/${code}`, { credentials: 'include' });
+      if (response.ok) {
+        const page = new DOMParser().parseFromString(await response.text(), 'text/html');
+        const fetched = postFromPageJson(code, page);
+        if (fetched) return fetched;
+      }
+    } catch { /* keep what the page had */ }
+    return inPage;
+  }
+  // The block of the open post: the one with a visible link to its code (its
+  // timestamp). Replies carry their own codes, the feed and earlier pages too.
+  function threadsRoot(code) {
+    if (!code) return null;
+    for (const link of document.querySelectorAll(`a[href*="/post/${code}"]`)) {
+      if (!link.getClientRects().length) continue;
+      const box = link.closest('[data-pressable-container]') || link.closest('article');
+      if (box) return box;
+    }
+    return null;
   }
   // /@username/post/<code>; the code identifies the post like an Instagram
   // shortcode. Share links (/share/<id>) carry no code: read it from the
@@ -364,16 +397,26 @@
     return variants.filter(item => item && /^https?:/i.test(item.url || ''))
       .sort((a, b) => ((b.width || 0) * (b.height || 0)) - ((a.width || 0) * (a.height || 0)))[0] || null;
   }
-  function threadsVideoFromPage(root) {
-    const fromPlayer = [...(root || document).querySelectorAll('video')]
+  function threadsVideoFromPage(root, post) {
+    if (!root) return null;
+    const fromPlayer = [...root.querySelectorAll('video')]
       .flatMap(video => [video.currentSrc, video.src, ...[...video.querySelectorAll('source')].map(source => source.src)])
       .find(url => /^https:/i.test(url || ''));
     if (fromPlayer) return { url: fromPlayer, kind: 'video' };
     // A streamed player fetches the MP4 in byte ranges; without the range
-    // parameters the same address serves the whole file.
-    const entry = performance.getEntriesByType('resource')
+    // parameters the same address serves the whole file. The tab has also
+    // loaded videos from the feed and earlier posts: consider only video
+    // loaded after this post's cover first appeared, and take the most recent
+    // one, i.e. the video that played while the post was open.
+    const coverFiles = (post?.image_versions2?.candidates || [])
+      .map(item => { try { return new URL(item.url).pathname.split('/').pop(); } catch { return ''; } }).filter(Boolean);
+    const resources = performance.getEntriesByType('resource');
+    const coverLoaded = Math.min(...resources.filter(item => coverFiles.some(file => item.name.includes(file))).map(item => item.startTime));
+    if (!Number.isFinite(coverLoaded)) return null;
+    const entry = resources
+      .filter(item => item.startTime >= coverLoaded)
       .filter(item => /(?:cdninstagram|fbcdn)\./i.test(item.name) && /\.mp4(?:\?|$)/i.test(item.name))
-      .sort((a, b) => (b.transferSize || b.encodedBodySize || 0) - (a.transferSize || a.encodedBodySize || 0))[0];
+      .sort((a, b) => b.startTime - a.startTime)[0];
     if (!entry) return null;
     const url = new URL(entry.name);
     url.searchParams.delete('bytestart');

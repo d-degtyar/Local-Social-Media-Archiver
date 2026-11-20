@@ -230,6 +230,8 @@ async function archiveActiveTab(destination = 'downloads', universal = false, st
         ? 'Open a YouTube video or Short to save its cover as a reference.'
         : post?.platform === 'x' && post.streamedVideo
         ? 'X videos need access to X\'s embed service. Click Save again and choose Allow when Chrome asks.'
+        : post?.platform === 'threads' && !post.streamedVideo
+        ? 'Could not find this Threads post on the page. Reload the page (F5) and save again.'
         : post?.streamedVideo
         ? 'This video is streamed in chunks and cannot be saved by URL. Play it for a few seconds and retry; some videos cannot be saved.'
         : 'No media found. Open the post itself and wait for photos or videos to load.'
