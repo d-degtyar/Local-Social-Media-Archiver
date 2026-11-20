@@ -8,6 +8,8 @@
 - The popup's help (?) shows the current keys and a link to change them.
 - Repeat warning for shortcut and menu saves: a post already saved to the same place (Eagle or Downloads) shows "Already saved … today at 14:20" instead; the same key or menu item again within 15 seconds saves it anyway. Popup buttons never ask, so deliberate retries stay one click. The extension remembers saved post addresses locally (up to 5,000) for this.
 - Threads photos save at the largest size the page offers: when the page describes a post more than once (a 640px preview and the full post) or its images list bigger sizes in srcset, every photo takes its largest version, matched by media id or by the CDN file name. Instagram posts benefit the same way.
+- YouTube covers no longer drop to 640×480 on slow connections: the video's own data names its HD cover when there is one, and otherwise all sizes are checked at once with a 20-second limit instead of 4 seconds each.
+- Instagram: after moving around the site without a reload, the page data can hold a post only as a 640–720 px preview; when its photos are smaller than their originals, the full-size post is read from Instagram's API instead.
 - New permissions: contextMenus (the right-click items) and storage (keeps the Stack posts setting and the list of saved post addresses, locally). Neither adds an install warning.
 
 ## 0.2.5 — Unreleased

@@ -20,7 +20,7 @@
     // performance-resource fallback also picked up feed previews and avatars.
     // Instagram carousels allow up to 20 items. This hard cap is also a safety
     // net if a platform changes its markup and the root becomes a feed.
-    const instagramPost = platform === 'instagram' ? instagramPostData() || await fetchInstagramMedia() : null;
+    const instagramPost = platform === 'instagram' ? await instagramPostFullSize() : null;
     const instagramMedia = instagramPost ? mediaFromInstagramNode(instagramPost) : [];
     const domMedia = collectMedia(root);
     const linkedInEmbed = platform === 'linkedin' ? await collectLinkedInEmbed() : null;
@@ -181,6 +181,31 @@
   }
   function wait(milliseconds) { return new Promise(resolve => setTimeout(resolve, milliseconds)); }
 
+  // After moving around Instagram without a reload, the page data can hold the
+  // post only as a feed or grid preview (640 or 720 px wide). When its photos
+  // are smaller than their originals, ask Instagram's API for the full post.
+  async function instagramPostFullSize() {
+    const inline = instagramPostData();
+    if (inline && !looksDownscaled(inline)) return inline;
+    const fromApi = await fetchInstagramMedia();
+    if (!inline) return fromApi;
+    return fromApi && smallestPhotoWidth(fromApi) > smallestPhotoWidth(inline) ? fromApi : inline;
+  }
+  function photoNodes(post) {
+    const nodes = Array.isArray(post.carousel_media) && post.carousel_media.length ? post.carousel_media : [post];
+    return nodes.filter(node => !node.video_versions?.length && node.image_versions2?.candidates?.length);
+  }
+  // The width of the post's least sharp photo, each at its best size.
+  function smallestPhotoWidth(post) {
+    return Math.min(...photoNodes(post).map(node => bestInstagramVariant(node.image_versions2.candidates)?.width || 0), Infinity);
+  }
+  function looksDownscaled(post) {
+    return photoNodes(post).some(node => {
+      const best = bestInstagramVariant(node.image_versions2.candidates)?.width || 0;
+      const original = node.original_width || post.original_width || 0;
+      return original ? best < original && best < 1080 : best > 0 && best < 1080;
+    });
+  }
   function instagramPostData() {
     const shortcode = instagramShortcode();
     if (!shortcode) return null;
@@ -570,7 +595,7 @@
     const videoId = youTubeVideoId();
     const isShort = location.pathname.startsWith('/shorts/');
     const details = videoId ? await youTubeDetails(videoId) : null;
-    const cover = videoId ? await youTubeCover(videoId) : '';
+    const cover = videoId ? await youTubeCover(videoId, details?.thumbnails) : '';
     const title = details?.title || '';
     const description = details?.description || '';
     return {
@@ -622,7 +647,8 @@
     try {
       const details = start >= 0 ? JSON.parse(balancedJson(text, start))?.videoDetails : null;
       if (details?.videoId !== videoId) return null;
-      return { title: details.title || '', channel: details.author || '', description: (details.shortDescription || '').trim() };
+      return { title: details.title || '', channel: details.author || '', description: (details.shortDescription || '').trim(),
+        thumbnails: details.thumbnail?.thumbnails || [] };
     } catch { return null; }
   }
   function balancedJson(text, start) { return balanced(text, start, '{', '}'); }
@@ -640,19 +666,25 @@
     }
     return '';
   }
-  async function youTubeCover(videoId) {
-    // Largest first. maxresdefault exists only for HD uploads; a missing size
-    // answers 404, so try each in turn and keep the first that loads.
-    for (const size of ['maxresdefault', 'sddefault', 'hqdefault']) {
-      const url = `https://i.ytimg.com/vi/${videoId}/${size}.jpg`;
-      if (await imageLoads(url)) return url;
-    }
+  async function youTubeCover(videoId, thumbnails = []) {
+    const base = `https://i.ytimg.com/vi/${videoId}`;
+    // The video's own data lists its covers; when it names an HD one, that
+    // settles it without a network check.
+    const widest = Math.max(0, ...thumbnails.map(item => item?.width || 0));
+    if (widest >= 1280 || thumbnails.some(item => /maxresdefault/.test(item?.url || ''))) return `${base}/maxresdefault.jpg`;
+    // Otherwise check each size, largest first. maxresdefault exists only for
+    // HD uploads (a missing size answers with a 120px placeholder). Load all
+    // three at once and wait long enough for slow connections: a 4-second
+    // limit sent 640×480 covers to users on slow networks.
+    const sizes = ['maxresdefault', 'sddefault', 'hqdefault'];
+    const loads = sizes.map(size => imageLoads(`${base}/${size}.jpg`, 20_000));
+    for (const [index, size] of sizes.entries()) if (await loads[index]) return `${base}/${size}.jpg`;
     return '';
   }
-  function imageLoads(url) {
+  function imageLoads(url, limit = 4000) {
     return new Promise(resolve => {
       const image = new Image();
-      const timer = setTimeout(() => resolve(false), 4000);
+      const timer = setTimeout(() => resolve(false), limit);
       image.onload = () => { clearTimeout(timer); resolve(image.naturalWidth > 120); };
       image.onerror = () => { clearTimeout(timer); resolve(false); };
       image.src = url;
