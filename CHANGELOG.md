@@ -10,14 +10,14 @@
 - Test mode for development: an unpacked install opened as popup.html?test saves from the tab used just before it and can run the shortcut and menu path, so browser automation can test saves end to end. Store installs ignore it.
 - New permissions: contextMenus (the right-click items) and storage (keeps the Stack posts setting and the list of saved post addresses, locally). Neither adds an install warning.
 
-## 0.2.6 — Unreleased (bug fixes only)
+## 0.2.6 — In Chrome Web Store review (bug fixes only)
 
 - Threads photos save at the largest size the page offers: when the page describes a post more than once (a 640px preview and the full post) or its images list bigger sizes in srcset, every photo takes its largest version, matched by media id or by the CDN file name. Instagram posts benefit the same way.
 - YouTube covers no longer drop to 640×480 on slow connections: the video's own data names its HD cover when there is one, and otherwise all sizes are checked at once with a 20-second limit instead of 4 seconds each.
 - Instagram: after moving around the site without a reload, the page data can hold a post only as a 640–720 px preview; when its photos are smaller than their originals, the full-size post is read from Instagram's API instead.
 - Threads: saves the open post, not an earlier one or a feed item, with its videos. After moving inside Threads (from the feed, a profile, search) the document holds no data for the open post, and Threads sends a post's full data (every slide, the video files) only to a real page load: a script's request for the same address gets the cover alone. The extension then opens the post in a muted background tab next to the current one for a second or two, reads the data once that page has finished loading, and closes it. The page-wide image fallback is gone: only the block linking to the post's code counts as the post (Threads keeps earlier pages and the feed in the document), and the video fallback takes only video loaded after the post's cover appeared, the most recent first. Videos are checked per carousel slide. When a video still cannot be found, the cover is saved with a note listing what each source answered.
 
-## 0.2.5 — Unreleased
+## 0.2.5 — Published on the Chrome Web Store
 
 - Popup opens compact for new users; ? shows the explanations.
 - LinkedIn: videos save as video, not as their poster frame. /feed/update/urn:li:activity:… links now use the post's embed page, and the MP4 comes from the player's data-sources or the page's progressiveStreams data, so the video need not have been played.
@@ -41,7 +41,7 @@
 
 - Moved to its own repository, with its history: [d-degtyar/eagle-telegram-sorter](https://github.com/d-degtyar/eagle-telegram-sorter).
 
-## 0.2.4 — Unreleased
+## 0.2.4 — Shipped in 0.2.5
 
 - YouTube videos and Shorts save as references: the cover image at the highest available size (maxres, then SD, then HQ), with the title, channel, description, and link. The video itself is not downloaded, in line with YouTube's terms and Chrome Web Store policy.
 - YouTube description is the uploader's text, not the rendered page: after navigating inside YouTube the extension loads the video's own page for its data, so the note no longer fills with view-counter digits and "…more" buttons.
@@ -50,7 +50,7 @@
 - If Chrome rejects a title as a file name, the file is saved under a Latin-only name instead of failing.
 - Save to Downloads uses one flat folder, Downloads/Local Social Archive, instead of a subfolder per post. A post's files share a base name: the video or pin title, or platform, author, and local time ("Instagram studio 2026-11-02 14-20 01.jpg"), and the note is "<same name>.txt" instead of post.txt.
 
-## 0.2.3 — Unreleased
+## 0.2.3 — Shipped in 0.2.5
 
 - Save to Downloads reports back within about 3 seconds instead of waiting for every file to finish; large videos keep downloading in Chrome. Expired links are still reported as failed.
 - Threads: videos save again. Threads now streams video to its player as blob: data, so the MP4 is read from the post data embedded in the page, as on Instagram. Carousels with videos save every item, and the caption and author come from the same data.
