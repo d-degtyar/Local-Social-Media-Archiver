@@ -246,7 +246,7 @@ async function archiveActiveTab(destination = 'downloads', universal = false, st
   }
   if (destination === 'eagle') {
     const result = { ...(await saveToEagle(post, uniqueMedia, stack)), note: post.note || '' };
-    if (result.ok) await rememberSaved(key, destination);
+    if (result.ok && !post.incomplete) await rememberSaved(key, destination);
     return result;
   }
 
@@ -281,7 +281,7 @@ async function archiveActiveTab(destination = 'downloads', universal = false, st
   const mediaCount = count('complete');
   const failed = count('interrupted');
   if (failed === uniqueMedia.length) return { ok: false, error: 'Downloads failed. Media links may have expired: reload the page and retry.' };
-  await rememberSaved(key, destination);
+  if (!post.incomplete) await rememberSaved(key, destination);
   return { ok: true, mediaCount, pending: count('in_progress'), failed, renamed: await renamedByAnotherExtension(ids), note: post.note || '' };
 }
 

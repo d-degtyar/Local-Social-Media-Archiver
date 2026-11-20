@@ -33,17 +33,29 @@
     const redditPost = platform === 'reddit' ? await collectRedditPost() : null;
     // Threads streams video to its player as blob: data, so the page's own
     // post JSON (the Instagram media format) is the only source of the MP4.
-    const threadsPost = platform === 'threads' ? await threadsPostData(threadsCode) : null;
+    const threadsData = platform === 'threads' ? await threadsPostData(threadsCode) : null;
+    const threadsPost = threadsData?.post || null;
     let threadsMedia = threadsPost ? mediaFromInstagramNode(threadsPost) : [];
     let threadsNote = '';
-    // The page data may describe a video post by its cover only. When the
-    // post has a player (or the data says video, media_type 2), take the file
-    // from the player or from what the page downloaded instead of the cover.
-    if (threadsPost && !threadsMedia.some(item => item.kind === 'video')
-      && (Number(threadsPost.media_type) === 2 || root?.querySelector('video'))) {
-      const video = threadsVideoFromPage(root, threadsPost);
-      if (video) threadsMedia = threadsMedia.length <= 1 ? [video] : [...threadsMedia, video];
-      else threadsNote = 'Only the cover was found: play the video for a second, then save again.';
+    let incomplete = false;
+    // The data may still describe a video by its cover only (a single video
+    // post or one slide of a carousel). Take the file from the post's player
+    // or from what the page downloaded while the post was open.
+    if (threadsPost) {
+      const missing = missingVideos(threadsPost);
+      const playerOnly = !missing.length && !threadsMedia.some(item => item.kind === 'video') && root?.querySelector('video');
+      if (missing.length || playerOnly) {
+        const video = threadsVideoFromPage(root, threadsPost);
+        threadsData.steps.push(`player/cache: ${video ? 'found' : 'nothing'}`);
+        const slot = missing.length ? postNodes(threadsPost).indexOf(missing[0]) : -1;
+        if (video && threadsMedia.length <= 1) threadsMedia = [video];
+        else if (video && slot >= 0) threadsMedia[slot] = video;
+        else if (video) threadsMedia.push(video);
+        if (!video && missing.length) {
+          incomplete = true;
+          threadsNote = `Threads did not hand over the video, so only its cover was saved (${threadsData.steps.join('; ')}). Play the video for a second, then save again.`;
+        }
+      }
     }
     // Do not add a network fallback when the structured Instagram data already
     // supplied a video: it is commonly a byte-range copy of the same Reel.
@@ -88,7 +100,10 @@
       // blob: and MediaSource streams cannot be downloaded by URL. Report them
       // so the popup can explain why a visible video was not saved.
       streamedVideo: !merged.some(item => item.kind === 'video') && hasStreamedVideo(root),
-      note: merged.some(item => item.kind === 'video') ? '' : threadsNote
+      note: threadsNote,
+      // A cover saved in place of a video: not recorded as saved, so saving
+      // again never meets the repeat warning.
+      incomplete
     };
   }
 
@@ -327,22 +342,64 @@
   // The page's inline data describes the post only when the page was loaded
   // on it. After moving inside Threads, it holds the post at best as a feed
   // preview. Then load this post's own page and read its data from there.
+  // Sources, in order, until the post is complete (every video has a file):
+  // the page's inline data, the post's own page, the post's embed page (the
+  // one Threads shows on other websites). Each step is noted for the popup.
   async function threadsPostData(code) {
-    if (!code) return null;
-    const inPage = postFromPageJson(code);
-    const complete = inPage && !looksDownscaled(inPage)
-      && !(Number(inPage.media_type) === 2 && !inPage.video_versions?.length);
-    if (complete) return inPage;
-    try {
-      const user = (location.pathname.match(/^\/(@[^/]+)\//) || [])[1] || (inPage ? `@${instagramAuthor(inPage)}` : '');
-      const response = await fetch(user ? `/${user}/post/${code}` : `/t/${code}`, { credentials: 'include' });
-      if (response.ok) {
-        const page = new DOMParser().parseFromString(await response.text(), 'text/html');
-        const fetched = postFromPageJson(code, page);
-        if (fetched) return fetched;
-      }
-    } catch { /* keep what the page had */ }
-    return inPage;
+    const steps = [];
+    if (!code) return { post: null, steps: ['no post code in the address'] };
+    let post = postFromPageJson(code);
+    steps.push(`page data: ${describeThreadsPost(post)}`);
+    const complete = candidate => candidate && !looksDownscaled(candidate) && !missingVideos(candidate).length;
+    if (complete(post)) return { post, steps };
+    const user = (location.pathname.match(/^\/(@[^/]+)\//) || [])[1] || (post ? `@${instagramAuthor(post)}` : '');
+    const base = user ? `/${user}/post/${code}` : `/t/${code}`;
+    const read = async (path, label) => {
+      try {
+        const response = await fetch(path, { credentials: 'include' });
+        const text = response.ok ? await response.text() : '';
+        const found = text ? postFromPageJson(code, new DOMParser().parseFromString(text, 'text/html')) : null;
+        steps.push(`${label}: ${response.status} ${describeThreadsPost(found)}`);
+        return { found, text };
+      } catch (error) { steps.push(`${label}: ${error.message}`); return { found: null, text: '' }; }
+    };
+    const better = (found) => found && (!post || postNodes(found).length >= postNodes(post).length
+      && missingVideos(found).length <= missingVideos(post).length);
+    const page = await read(base, 'post page');
+    if (better(page.found)) post = page.found;
+    if (complete(post)) return { post, steps };
+    const embed = await read(`${base}/embed`, 'embed');
+    if (better(embed.found)) post = embed.found;
+    // The embed page plays the video from a plain MP4 address; give it to
+    // the slides still without a file, in order.
+    if (post && missingVideos(post).length && embed.text) {
+      const files = mp4Addresses(embed.text);
+      steps.push(`embed video files: ${files.length}`);
+      missingVideos(post).forEach((node, index) => { if (files[index]) node.video_versions = [{ url: files[index], width: 0, height: 0 }]; });
+    }
+    return { post, steps };
+  }
+  function postNodes(post) {
+    return Array.isArray(post?.carousel_media) && post.carousel_media.length ? post.carousel_media : post ? [post] : [];
+  }
+  // A video known only by its cover: the data says video but lists no file.
+  function missingVideos(post) {
+    return postNodes(post).filter(node => (Number(node.media_type) === 2 || Number(node.video_duration) > 0 || node.video_dash_manifest)
+      && !node.video_versions?.some(item => /^https?:/i.test(item?.url || '')));
+  }
+  function describeThreadsPost(post) {
+    if (!post) return 'no post data';
+    const nodes = postNodes(post);
+    const videos = nodes.filter(node => node.video_versions?.length || Number(node.media_type) === 2 || Number(node.video_duration) > 0);
+    return `${nodes.length} item(s), ${videos.length - missingVideos(post).length}/${videos.length} videos with a file`;
+  }
+  function mp4Addresses(text) {
+    const found = [];
+    for (const match of text.matchAll(/https?:(?:\\?\/){2}[^"'\s<>]+?\.mp4[^"'\s<>]*/g)) {
+      const url = match[0].replace(/\\\//g, '/').replace(/&amp;/g, '&').replace(/\\u0026/g, '&').replace(/\\+$/, '');
+      if (!found.includes(url)) found.push(url);
+    }
+    return found;
   }
   // The block of the open post: the one with a visible link to its code (its
   // timestamp). Replies carry their own codes, the feed and earlier pages too.
