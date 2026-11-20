@@ -3,6 +3,13 @@
   globalThis.__localSocialMediaCollectorInstalled = true;
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    // In a background tab the extension opened on a Threads post: its data.
+    // Threads streams the page: early parts carry a preview of the post, the
+    // full data comes later, so report whether the page has finished loading.
+    if (message.type === 'THREADS_POST_DATA') {
+      sendResponse({ post: postFromPageJson(String(message.code || '')), complete: document.readyState === 'complete' });
+      return;
+    }
     if (message.type !== 'COLLECT_POST') return;
     collectPost().then(sendResponse)
       .catch(error => sendResponse({ error: error.message, media: [] }));
@@ -342,41 +349,25 @@
   // The page's inline data describes the post only when the page was loaded
   // on it. After moving inside Threads, it holds the post at best as a feed
   // preview. Then load this post's own page and read its data from there.
-  // Sources, in order, until the post is complete (every video has a file):
-  // the page's inline data, the post's own page, the post's embed page (the
-  // one Threads shows on other websites). Each step is noted for the popup.
+  // The page's inline data describes the post only when the page was loaded
+  // on it. After moving inside Threads (from the feed, a profile, search), the
+  // post arrived by a request whose answer is not in the document. Threads
+  // sends the full post data only to a real page load (a script's request for
+  // the same address gets the cover alone), so the background opens the post
+  // in a background tab for a moment and reads it there.
   async function threadsPostData(code) {
     const steps = [];
     if (!code) return { post: null, steps: ['no post code in the address'] };
     let post = postFromPageJson(code);
     steps.push(`page data: ${describeThreadsPost(post)}`);
-    const complete = candidate => candidate && !looksDownscaled(candidate) && !missingVideos(candidate).length;
-    if (complete(post)) return { post, steps };
+    if (post && !looksDownscaled(post) && !missingVideos(post).length) return { post, steps };
     const user = (location.pathname.match(/^\/(@[^/]+)\//) || [])[1] || (post ? `@${instagramAuthor(post)}` : '');
-    const base = user ? `/${user}/post/${code}` : `/t/${code}`;
-    const read = async (path, label) => {
-      try {
-        const response = await fetch(path, { credentials: 'include' });
-        const text = response.ok ? await response.text() : '';
-        const found = text ? postFromPageJson(code, new DOMParser().parseFromString(text, 'text/html')) : null;
-        steps.push(`${label}: ${response.status} ${describeThreadsPost(found)}`);
-        return { found, text };
-      } catch (error) { steps.push(`${label}: ${error.message}`); return { found: null, text: '' }; }
-    };
-    const better = (found) => found && (!post || postNodes(found).length >= postNodes(post).length
-      && missingVideos(found).length <= missingVideos(post).length);
-    const page = await read(base, 'post page');
-    if (better(page.found)) post = page.found;
-    if (complete(post)) return { post, steps };
-    const embed = await read(`${base}/embed`, 'embed');
-    if (better(embed.found)) post = embed.found;
-    // The embed page plays the video from a plain MP4 address; give it to
-    // the slides still without a file, in order.
-    if (post && missingVideos(post).length && embed.text) {
-      const files = mp4Addresses(embed.text);
-      steps.push(`embed video files: ${files.length}`);
-      missingVideos(post).forEach((node, index) => { if (files[index]) node.video_versions = [{ url: files[index], width: 0, height: 0 }]; });
-    }
+    try {
+      const answer = await chrome.runtime.sendMessage({ type: 'THREADS_LOAD_POST', url: `${location.origin}${user ? `/${user}/post/${code}` : `/t/${code}`}` });
+      const found = answer?.post || null;
+      steps.push(`post page: ${answer?.error || describeThreadsPost(found)}`);
+      if (found && (!post || postNodes(found).length >= postNodes(post).length && missingVideos(found).length <= missingVideos(post).length)) post = found;
+    } catch (error) { steps.push(`post page: ${error.message}`); }
     return { post, steps };
   }
   function postNodes(post) {
@@ -392,14 +383,6 @@
     const nodes = postNodes(post);
     const videos = nodes.filter(node => node.video_versions?.length || Number(node.media_type) === 2 || Number(node.video_duration) > 0);
     return `${nodes.length} item(s), ${videos.length - missingVideos(post).length}/${videos.length} videos with a file`;
-  }
-  function mp4Addresses(text) {
-    const found = [];
-    for (const match of text.matchAll(/https?:(?:\\?\/){2}[^"'\s<>]+?\.mp4[^"'\s<>]*/g)) {
-      const url = match[0].replace(/\\\//g, '/').replace(/&amp;/g, '&').replace(/\\u0026/g, '&').replace(/\\+$/, '');
-      if (!found.includes(url)) found.push(url);
-    }
-    return found;
   }
   // The block of the open post: the one with a visible link to its code (its
   // timestamp). Replies carry their own codes, the feed and earlier pages too.

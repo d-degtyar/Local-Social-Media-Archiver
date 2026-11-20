@@ -45,7 +45,11 @@ chrome.runtime.onInstalled.addListener(({ reason }) => {
   chrome.action.setBadgeBackgroundColor({ color: '#e0161f' });
 });
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === 'THREADS_LOAD_POST') {
+    loadThreadsPost(message.url, sender.tab).then(sendResponse).catch(error => sendResponse({ post: null, error: error.message }));
+    return true;
+  }
   if (message.type !== 'ARCHIVE_ACTIVE_TAB') return;
   archiveActiveTab(message.destination, message.universal === true, message.stack === true).then(sendResponse).catch(error => sendResponse({ ok: false, error: error.message }));
   return true;
@@ -208,6 +212,37 @@ async function showToast(tabId, text, state) {
       }, state === 'ok' ? 3_500 : state === 'repeat' ? 15_000 : 8_000);
     } });
   } catch { /* page cannot be scripted */ }
+}
+
+// Threads sends a post's full data (every slide, the video files) only to a
+// real page load. After moving inside Threads the open tab lacks it, so open
+// the post in a muted background tab next to it, read the data there with the
+// collector, and close the tab again. Only Threads post addresses qualify.
+async function loadThreadsPost(url, opener) {
+  const address = new URL(url);
+  const code = (address.pathname.match(/\/(?:post|t)\/([A-Za-z0-9_-]+)/) || [])[1];
+  if (!/^(www\.)?threads\.(com|net)$/.test(address.hostname) || address.protocol !== 'https:' || !code) return { post: null, error: 'not a Threads post' };
+  const tab = await chrome.tabs.create({ url: `${address.origin}${address.pathname}`, active: false,
+    ...(opener?.id >= 0 ? { openerTabId: opener.id, index: opener.index + 1 } : {}) });
+  try {
+    chrome.tabs.update(tab.id, { muted: true }).catch(() => {});
+    // Read once the page has finished loading; until then only a preview of
+    // the post may be there. On a timeout, keep the best data seen.
+    const deadline = Date.now() + 20_000;
+    let latest = null;
+    while (Date.now() < deadline) {
+      await new Promise(resolve => setTimeout(resolve, 700));
+      try {
+        await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['collector.js'] });
+        const answer = await chrome.tabs.sendMessage(tab.id, { type: 'THREADS_POST_DATA', code });
+        if (answer?.post) latest = answer.post;
+        if (answer?.complete && latest) return { post: latest };
+      } catch { /* still loading */ }
+    }
+    return latest ? { post: latest } : { post: null, error: 'no post data after 20 s' };
+  } finally {
+    chrome.tabs.remove(tab.id).catch(() => {});
+  }
 }
 
 async function archiveActiveTab(destination = 'downloads', universal = false, stack = false, givenTab = null, checkDuplicate = false) {
