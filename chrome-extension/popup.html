@@ -36,6 +36,18 @@
 
       <output id="status" aria-live="polite"></output>
 
+      <!-- Test mode: only in an unpacked (development) install, opened as a
+           tab with popup.html?test. Lets browser automation, which cannot press
+           extension shortcuts or click the toolbar icon, drive real saves. -->
+      <section id="test-mode" class="test" hidden>
+        <p><strong>Test mode</strong>: saves from <span id="test-target">the last tab you used</span>.</p>
+        <div class="test-buttons">
+          <button id="test-key-eagle" class="secondary" type="button">Shortcut → Eagle</button>
+          <button id="test-key-downloads" class="secondary" type="button">Shortcut → Downloads</button>
+          <button id="test-menu-eagle" class="secondary" type="button">Menu → Eagle</button>
+        </div>
+      </section>
+
       <section class="help">
         <details>
           <summary>Supported sites</summary>

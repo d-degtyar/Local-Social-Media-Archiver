@@ -50,10 +50,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     loadThreadsPost(message.url, sender.tab).then(sendResponse).catch(error => sendResponse({ post: null, error: error.message }));
     return true;
   }
+  // Test mode (popup.html?test, unpacked installs only): the popup page is a
+  // tab, so it names the tab to save from and can run the shortcut path.
+  if (message.type === 'TEST_QUICK_SAVE') {
+    (async () => {
+      if (!await isDevelopmentInstall()) return { error: 'Test mode needs an unpacked install.' };
+      const tab = await chrome.tabs.get(message.tabId);
+      return { message: await quickSave(message.command, tab, message.source === 'menu' ? 'menu' : 'shortcut') };
+    })().then(sendResponse).catch(error => sendResponse({ error: error.message }));
+    return true;
+  }
   if (message.type !== 'ARCHIVE_ACTIVE_TAB') return;
-  archiveActiveTab(message.destination, message.universal === true, message.stack === true).then(sendResponse).catch(error => sendResponse({ ok: false, error: error.message }));
+  (async () => {
+    const tab = Number.isInteger(message.tabId) && await isDevelopmentInstall() ? await chrome.tabs.get(message.tabId) : null;
+    return archiveActiveTab(message.destination, message.universal === true, message.stack === true, tab);
+  })().then(sendResponse).catch(error => sendResponse({ ok: false, error: error.message }));
   return true;
 });
+async function isDevelopmentInstall() {
+  try { return (await chrome.management.getSelf()).installType === 'development'; } catch { return false; }
+}
 
 // Save without opening the popup: a keyboard shortcut (Alt+Shift+S / D by
 // default, changeable in chrome://extensions/shortcuts) or the right-click
@@ -79,7 +95,8 @@ const busyTabs = new Set();
 let pendingRepeat = null;
 async function quickSave(command, givenTab, source = 'shortcut') {
   const first = givenTab?.id >= 0 ? givenTab : (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
-  if (!first?.id || busyTabs.has(first.id)) return;
+  if (!first?.id) return 'No tab to save from.';
+  if (busyTabs.has(first.id)) return 'Already saving in that tab.';
   // Read the tab again: its URL is visible once the shortcut or menu granted activeTab.
   const tab = await chrome.tabs.get(first.id).catch(() => first);
   busyTabs.add(tab.id);
@@ -109,6 +126,7 @@ async function quickSave(command, givenTab, source = 'shortcut') {
   await showToast(tab.id, message, state);
   await showBadge(tab.id, { ok: '✓', repeat: '2×', error: '!' }[state], { ok: '#16a34a', repeat: '#d97706', error: '#e0161f' }[state], message);
   setTimeout(() => showBadge(tab.id, null, null, null), result.ok ? 4_000 : 10_000);
+  return message;
 }
 
 async function shortcutOf(command) {

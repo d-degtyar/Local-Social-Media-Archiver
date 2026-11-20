@@ -73,6 +73,39 @@ document.querySelector('#dismiss-news').addEventListener('click', () => {
   chrome.action.setBadgeText({ text: '' });
 });
 
+// Test mode (see popup.html): an unpacked install opened as popup.html?test.
+// The page is then a tab itself, so it saves from the tab used just before.
+const testMode = (async () => {
+  if (!new URLSearchParams(location.search).has('test')) return false;
+  try { return (await chrome.management.getSelf()).installType === 'development'; } catch { return false; }
+})();
+async function targetTab() {
+  if (!await testMode) return (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
+  const self = (await chrome.tabs.getCurrent())?.id;
+  return (await chrome.tabs.query({ currentWindow: true }))
+    .filter(tab => tab.id !== self && !/^(chrome|chrome-extension|about):/.test(tab.url || ''))
+    .sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0))[0];
+}
+testMode.then(async on => {
+  if (!on) return;
+  document.querySelector('#test-mode').hidden = false;
+  const describe = async () => {
+    const tab = await targetTab();
+    document.querySelector('#test-target').textContent = tab ? `tab ${tab.id}${tab.url ? ` (${tab.url.slice(0, 80)})` : ''}` : 'no other tab in this window';
+  };
+  await describe();
+  window.addEventListener('focus', describe);
+  for (const [id, command, source] of [['#test-key-eagle', 'save-to-eagle', 'shortcut'], ['#test-key-downloads', 'save-to-downloads', 'shortcut'], ['#test-menu-eagle', 'save-to-eagle', 'menu']]) {
+    document.querySelector(id).addEventListener('click', async () => {
+      const tab = await targetTab();
+      if (!tab) { status.value = 'No tab to save from.'; return; }
+      status.value = 'Running the shortcut save; its notice appears in that tab.';
+      const result = await chrome.runtime.sendMessage({ type: 'TEST_QUICK_SAVE', command, source, tabId: tab.id });
+      status.value = result?.message || result?.error || 'Done.';
+    });
+  }
+});
+
 for (const button of document.querySelectorAll('button.save')) button.addEventListener('click', async () => {
   const destination = button.id === 'save-eagle' ? 'eagle' : 'downloads';
   setDisabled(true);
@@ -80,7 +113,8 @@ for (const button of document.querySelectorAll('button.save')) button.addEventLi
   try {
     if (lucky.checked) await requestCurrentSitePermission();
     else await requestVideoPermission();
-    const result = await chrome.runtime.sendMessage({ type: 'ARCHIVE_ACTIVE_TAB', destination, universal: lucky.checked, stack: stack.checked });
+    const tabId = await testMode ? (await targetTab())?.id : undefined;
+    const result = await chrome.runtime.sendMessage({ type: 'ARCHIVE_ACTIVE_TAB', destination, universal: lucky.checked, stack: stack.checked, tabId });
     status.value = result.ok
       ? destination === 'eagle'
         ? `Added to Eagle: ${result.mediaCount} media.${result.note ? `\n${result.note}` : ''}`
@@ -107,7 +141,7 @@ function setDisabled(disabled) { document.querySelectorAll('button.save').forEac
 // Videos on X and Vimeo need another host (X's embed service, the Vimeo player); ask once, on the first save there.
 // Declining still saves the post's photos.
 async function requestVideoPermission() {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const tab = await targetTab();
   let host = '';
   try { host = new URL(tab?.url || '').hostname; } catch { return; }
   // Vimeo videos need the player's config, on another host; ask the same way.
@@ -118,7 +152,7 @@ async function requestVideoPermission() {
 }
 
 async function requestCurrentSitePermission() {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const tab = await targetTab();
   if (!tab?.url) throw new Error('Could not find active tab.');
   let origin;
   try { origin = new URL(tab.url).origin; }
