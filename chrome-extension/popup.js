@@ -119,6 +119,7 @@ for (const button of document.querySelectorAll('button.save')) button.addEventLi
     else await requestVideoPermission();
     const tabId = await testMode ? (await targetTab())?.id : undefined;
     const result = await chrome.runtime.sendMessage({ type: 'ARCHIVE_ACTIVE_TAB', destination, universal: lucky.checked, stack: stack.checked, tabId });
+    if (!result) throw new Error('No answer from the extension. Reload the page and try again.');
     status.value = result.ok
       ? destination === 'eagle'
         ? `Added to Eagle: ${result.mediaCount} media.${result.note ? `\n${result.note}` : ''}`

@@ -8,6 +8,10 @@
 - The popup's help (?) shows the current keys and a link to change them.
 - Repeat warning for shortcut and menu saves: a post already saved to the same place (Eagle or Downloads) shows "Already saved … today at 14:20" instead; the same key or menu item again within 15 seconds saves it anyway. Popup buttons never ask, so deliberate retries stay one click. The extension remembers saved post addresses locally (up to 5,000) for this.
 - The repeat warning follows the post, not the page address: Threads posts are keyed by their /@user/post/code link, and a Threads save that got only a video's cover is not recorded as saved, so saving again is not met by the warning.
+- Open tabs keep working after an update: the collector replaces the listener of an earlier injection instead of skipping itself when it finds one, so a copy left over from the previous version no longer blocks saving until the page is reloaded.
+- When the collector itself fails on a page, the popup and the page notice say so ("Could not read this page: …") instead of "No media found".
+- Repeat warning: on sites other than the supported ones, the address keeps its query (minus tracking parameters), so viewtopic.php?t=1 and ?t=2 are different posts. Saves finishing together in two tabs no longer overwrite each other's record.
+- Threads: the background tab opens in the same window as the post.
 - Test mode for development: an unpacked install opened as popup.html?test saves from the tab used just before it and can run the shortcut and menu path, so browser automation can test saves end to end. Store installs ignore it.
 - New permissions: contextMenus (the right-click items) and storage (keeps the Stack posts setting and the list of saved post addresses, locally). Neither adds an install warning.
 

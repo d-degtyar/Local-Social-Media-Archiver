@@ -85,8 +85,8 @@ chrome.runtime.onInstalled.addListener(() => {
     }
   });
 });
-chrome.commands.onCommand.addListener((command, tab) => { if (MENU_ITEMS[command]) quickSave(command, tab); });
-chrome.contextMenus.onClicked.addListener((info, tab) => { if (MENU_ITEMS[info.menuItemId]) quickSave(info.menuItemId, tab, 'menu'); });
+chrome.commands.onCommand.addListener((command, tab) => { if (MENU_ITEMS[command]) quickSave(command, tab).catch(() => {}); });
+chrome.contextMenus.onClicked.addListener((info, tab) => { if (MENU_ITEMS[info.menuItemId]) quickSave(info.menuItemId, tab, 'menu').catch(() => {}); });
 
 const busyTabs = new Set();
 // A shortcut or menu save of a post already saved to the same place asks for
@@ -153,14 +153,27 @@ function postKey(url) {
     const path = address.pathname.replace(/\/(media|photo\/\d+|video\/\d+)\/?$/, '').replace(/\/+$/, '')
       .replace(/^\/(reel|reels|tv)\//, '/p/');
     const video = host.endsWith('youtube.com') && address.searchParams.get('v');
-    return `${host}${path}${video ? `?v=${video}` : ''}`;
+    if (video) return `${host}${path}?v=${video}`;
+    // The supported sites name a post by its path; elsewhere the query can be
+    // what tells two pages apart (?id=1, ?id=2). Keep it there, minus tracking.
+    if (isSupported(url)) return `${host}${path}`;
+    const query = [...address.searchParams].filter(([name]) => !/^(utm_\w+|fbclid|gclid|igsh|xmt|si|ref|ref_src|share_id)$/i.test(name))
+      .sort(([a], [b]) => a.localeCompare(b)).map(([name, value]) => `${name}=${value}`).join('&');
+    return `${host}${path}${query ? `?${query}` : ''}`;
   } catch { return ''; }
 }
 async function savedAt(key, destination) {
   if (!key) return 0;
   try { return (await chrome.storage.local.get(SAVED_KEY))[SAVED_KEY]?.[key]?.[destination] || 0; } catch { return 0; }
 }
-async function rememberSaved(key, destination) {
+// Saves in two tabs can finish together; queue the read-modify-write so one
+// does not overwrite the other's entry.
+let savedQueue = Promise.resolve();
+function rememberSaved(key, destination) {
+  savedQueue = savedQueue.then(() => writeSaved(key, destination));
+  return savedQueue;
+}
+async function writeSaved(key, destination) {
   if (!key) return;
   try {
     const saved = (await chrome.storage.local.get(SAVED_KEY))[SAVED_KEY] || {};
@@ -241,7 +254,7 @@ async function loadThreadsPost(url, opener) {
   const code = (address.pathname.match(/\/(?:post|t)\/([A-Za-z0-9_-]+)/) || [])[1];
   if (!/^(www\.)?threads\.(com|net)$/.test(address.hostname) || address.protocol !== 'https:' || !code) return { post: null, error: 'not a Threads post' };
   const tab = await chrome.tabs.create({ url: `${address.origin}${address.pathname}`, active: false,
-    ...(opener?.id >= 0 ? { openerTabId: opener.id, index: opener.index + 1 } : {}) });
+    ...(opener?.id >= 0 ? { openerTabId: opener.id, windowId: opener.windowId, index: opener.index + 1 } : {}) });
   try {
     chrome.tabs.update(tab.id, { muted: true }).catch(() => {});
     // Read once the page has finished loading; until then only a preview of
@@ -272,6 +285,9 @@ async function archiveActiveTab(destination = 'downloads', universal = false, st
   const post = await chrome.tabs.sendMessage(tab.id, { type: 'COLLECT_POST' });
   if (post?.platform === 'x' && post.statusId) await addXEmbedMedia(post);
   if (post?.platform === 'vimeo' && post.vimeo) await addVimeoVideo(post);
+  // The collector itself failed (a site change it did not expect): say so
+  // instead of the generic "no media found".
+  if (post?.error && !post.media?.length) return { ok: false, error: `Could not read this page: ${post.error}` };
   if (!post?.media?.length) {
     return {
       ok: false,

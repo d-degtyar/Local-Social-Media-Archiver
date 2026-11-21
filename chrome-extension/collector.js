@@ -1,8 +1,10 @@
 (() => {
-  if (globalThis.__localSocialMediaCollectorInstalled) return;
-  globalThis.__localSocialMediaCollectorInstalled = true;
-
-  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  // The collector is injected on every save. Replace the listener of an
+  // earlier injection instead of skipping: after the extension updates, that
+  // earlier copy is cut off from the new version and can no longer answer, so
+  // a "run once" flag would leave open tabs unable to save until reloaded.
+  try { if (globalThis.__localSocialMediaCollector) chrome.runtime.onMessage.removeListener(globalThis.__localSocialMediaCollector); } catch { /* cut-off copy */ }
+  const listener = (message, _sender, sendResponse) => {
     // In a background tab the extension opened on a Threads post: its data.
     // Threads streams the page: early parts carry a preview of the post, the
     // full data comes later, so report whether the page has finished loading.
@@ -14,7 +16,9 @@
     collectPost().then(sendResponse)
       .catch(error => sendResponse({ error: error.message, media: [] }));
     return true;
-  });
+  };
+  globalThis.__localSocialMediaCollector = listener;
+  chrome.runtime.onMessage.addListener(listener);
 
   async function collectPost() {
     const platform = platformName(location.hostname);
@@ -346,9 +350,6 @@
     const match = document.documentElement.innerHTML.match(/"(?:X-IG-App-ID|APP_ID)":"(\d{6,})"/);
     return match?.[1] || '936619743392459';
   }
-  // The page's inline data describes the post only when the page was loaded
-  // on it. After moving inside Threads, it holds the post at best as a feed
-  // preview. Then load this post's own page and read its data from there.
   // The page's inline data describes the post only when the page was loaded
   // on it. After moving inside Threads (from the feed, a profile, search), the
   // post arrived by a request whose answer is not in the document. Threads
