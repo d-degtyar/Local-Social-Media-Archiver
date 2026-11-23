@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.7 — Unreleased
+## 0.2.7 — In Chrome Web Store review
 
 - Save without opening the popup: keyboard shortcuts Alt+Shift+S (to Eagle) and Alt+Shift+D (to Downloads), changeable in chrome://extensions/shortcuts, and "Save post to Eagle / to Downloads" in the right-click menu on pages, images, videos and links.
 - Shortcut and menu saves use the popup's Stack posts setting and work on any site through the same access a popup click gives (activeTab), so unsupported sites are tried without a permission prompt.
