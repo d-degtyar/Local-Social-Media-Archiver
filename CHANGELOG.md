@@ -8,6 +8,8 @@
 - The popup's help (?) shows the current keys and a link to change them.
 - Repeat warning for shortcut and menu saves: a post already saved to the same place (Eagle or Downloads) shows "Already saved … today at 14:20" instead; the same key or menu item again within 15 seconds saves it anyway. Popup buttons never ask, so deliberate retries stay one click. The extension remembers saved post addresses locally (up to 5,000) for this.
 - The repeat warning follows the post, not the page address: Threads posts are keyed by their /@user/post/code link, and a Threads save that got only a video's cover is not recorded as saved, so saving again is not met by the warning.
+- Right-click a post in a feed to save that post without opening it (Threads feeds and profiles, Pinterest home, boards and search): the menu passes the image, video or link that was clicked, and the collector saves the post it belongs to. Without it, saving from a feed says to right-click the post or open it.
+- Pinterest: carousel pins whose slides are videos save the videos (the 720p MP4 of each slide), not their cover images.
 - Open tabs keep working after an update: the collector replaces the listener of an earlier injection instead of skipping itself when it finds one, so a copy left over from the previous version no longer blocks saving until the page is reloaded.
 - When the collector itself fails on a page, the popup and the page notice say so ("Could not read this page: …") instead of "No media found".
 - Repeat warning: on sites other than the supported ones, the address keeps its query (minus tracking parameters), so viewtopic.php?t=1 and ?t=2 are different posts. Saves finishing together in two tabs no longer overwrite each other's record.

@@ -43,7 +43,8 @@ helpButton.addEventListener('click', () => {
 const WHATS_NEW = {
   '0.2.7': [
     'Save without opening the popup: Alt+Shift+S to Eagle, Alt+Shift+D to Downloads.',
-    'Or right-click a post: Save post to Eagle / to Downloads.',
+    'Or right-click a post, even in the Threads or Pinterest feed, without opening it.',
+    'Pinterest: video slides of carousel pins save as video.',
     'A short notice in the page corner shows what was saved, and warns before saving the same post twice.'
   ],
   '0.2.6': [

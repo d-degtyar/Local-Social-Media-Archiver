@@ -13,23 +13,26 @@
       return;
     }
     if (message.type !== 'COLLECT_POST') return;
-    collectPost().then(sendResponse)
+    collectPost(message.hint || null).then(sendResponse)
       .catch(error => sendResponse({ error: error.message, media: [] }));
     return true;
   };
   globalThis.__localSocialMediaCollector = listener;
   chrome.runtime.onMessage.addListener(listener);
 
-  async function collectPost() {
+  async function collectPost(hint) {
     const platform = platformName(location.hostname);
-    if (platform === 'pinterest') return collectPinterestPin();
+    // Saved from the right-click menu: the element clicked tells which post is
+    // meant when the page shows many (a feed, a board, search results).
+    const target = hint ? hintedElement(hint) : null;
+    if (platform === 'pinterest') return collectPinterestPin(hintedPinId(hint, target));
     if (platform === 'x') return collectXPost();
     if (platform === 'youtube') return collectYouTubeVideo();
     if (platform === 'vimeo') return collectVimeoVideo();
     // Threads keeps earlier pages and the feed in the document after moving
     // inside the site, so "the first post on the page" can be another post.
     // Only the block that links to this post's code counts as the post.
-    const threadsCode = platform === 'threads' ? threadsPostCode() : '';
+    const threadsCode = platform === 'threads' ? hintedThreadsCode(hint, target) || threadsPostCode() : '';
     const root = platform === 'threads' ? threadsRoot(threadsCode) : findPostRoot(platform);
     // Deliberately collect only elements rendered inside the post. A previous
     // performance-resource fallback also picked up feed previews and avatars.
@@ -119,6 +122,32 @@
   }
 
   const MAX_MEDIA = 20;
+
+  // The element the right-click menu was opened on: an image or video by its
+  // address, or else a link by its target.
+  function hintedElement(hint) {
+    const same = (a, b) => Boolean(a && b) && a.split('#')[0] === b.split('#')[0];
+    if (hint.srcUrl) {
+      for (const element of document.querySelectorAll('img, video, source')) {
+        if (same(element.currentSrc, hint.srcUrl) || same(element.src, hint.srcUrl)
+          || (element.getAttribute('srcset') || '').split(',').some(entry => same(entry.trim().split(/\s+/)[0], hint.srcUrl))) {
+          return element.closest('video') || element;
+        }
+      }
+    }
+    if (hint.linkUrl) for (const link of document.querySelectorAll('a[href]')) if (same(link.href, hint.linkUrl)) return link;
+    return null;
+  }
+  function hintedThreadsCode(hint, target) {
+    const fromPath = path => (String(path || '').match(/\/post\/([A-Za-z0-9_-]+)/) || [])[1] || '';
+    if (fromPath(hint?.linkUrl)) return fromPath(hint.linkUrl);
+    const box = target?.closest('[data-pressable-container]') || target?.closest('article');
+    return fromPath(box?.querySelector('a[href*="/post/"]')?.getAttribute('href'));
+  }
+  function hintedPinId(hint, target) {
+    const fromPath = path => (String(path || '').match(/\/pin\/(?:[^/]*--)?([A-Za-z0-9_]+)/) || [])[1] || '';
+    return fromPath(hint?.linkUrl) || fromPath(target?.closest('a[href*="/pin/"]')?.getAttribute('href'));
+  }
 
   function platformName(host) {
     // Exact hosts for X: a substring test for "x.com" would match netflix.com.
@@ -534,8 +563,8 @@
   // Only the pin whose id is in the URL is saved. The close-up page also shows
   // related pins and promoted pins (ads) around it; matching by id keeps them
   // out, which DOM scraping of "the biggest image" could not guarantee.
-  async function collectPinterestPin() {
-    const pinId = pinterestPinId();
+  async function collectPinterestPin(hintedId = '') {
+    const pinId = hintedId || pinterestPinId();
     const pin = pinId ? await fetchPinterestPin(pinId) || embeddedPinterestPin(pinId) : null;
     let media = pin ? pinterestMedia(pin) : [];
     if (!media.length) media = pinterestDomMedia();
@@ -612,7 +641,10 @@
     }
     const slots = pin.carousel_data?.carousel_slots;
     if (Array.isArray(slots) && slots.length) {
+      // A slide is a video when it lists one; its images are then the cover.
       return slots.flatMap(slot => {
+        const video = bestPinterestVideo(slot.videos?.video_list || slot.videos?.videoList || slot.video?.video_list);
+        if (video) return [{ url: video, kind: 'video' }];
         const image = bestPinterestImage(slot.images);
         return image ? [{ url: image, kind: 'image' }] : [];
       });

@@ -40,7 +40,7 @@ Save images and videos from the post you're viewing to Eagle or your Downloads f
 > • Vimeo: the video file when its owner allows downloads, otherwise the same reference card
 > • "I feel lucky": try any other site, with permission requested only for that site
 >
-> Faster: press Alt+Shift+S to save the open post to Eagle (Alt+Shift+D for Downloads), or right-click the page. You can change the keys in Chrome's shortcut settings.
+> Faster: press Alt+Shift+S to save the open post to Eagle (Alt+Shift+D for Downloads), or right-click a post, even in a Threads or Pinterest feed, to save it without opening it. You can change the keys in Chrome's shortcut settings.
 >
 > Stacks for Eagle (optional): every post gets its own folder and a cover, so a smart folder shows one tile per post instead of loose slides. A short guide opens the first time you turn it on.
 >

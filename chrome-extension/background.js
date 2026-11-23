@@ -56,7 +56,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     (async () => {
       if (!await isDevelopmentInstall()) return { error: 'Test mode needs an unpacked install.' };
       const tab = await chrome.tabs.get(message.tabId);
-      return { message: await quickSave(message.command, tab, message.source === 'menu' ? 'menu' : 'shortcut') };
+      return { message: await quickSave(message.command, tab, message.source === 'menu' ? 'menu' : 'shortcut', message.hint || null) };
     })().then(sendResponse).catch(error => sendResponse({ error: error.message }));
     return true;
   }
@@ -86,14 +86,18 @@ chrome.runtime.onInstalled.addListener(() => {
   });
 });
 chrome.commands.onCommand.addListener((command, tab) => { if (MENU_ITEMS[command]) quickSave(command, tab).catch(() => {}); });
-chrome.contextMenus.onClicked.addListener((info, tab) => { if (MENU_ITEMS[info.menuItemId]) quickSave(info.menuItemId, tab, 'menu').catch(() => {}); });
+// The menu also says what was right-clicked, so a post in a feed can be saved
+// without opening it.
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (MENU_ITEMS[info.menuItemId]) quickSave(info.menuItemId, tab, 'menu', { srcUrl: info.srcUrl || '', linkUrl: info.linkUrl || '' }).catch(() => {});
+});
 
 const busyTabs = new Set();
 // A shortcut or menu save of a post already saved to the same place asks for
 // a second press instead (within 15 s, same tab and page) — easy to press
 // twice by accident, and a popup click never asks, for deliberate retries.
 let pendingRepeat = null;
-async function quickSave(command, givenTab, source = 'shortcut') {
+async function quickSave(command, givenTab, source = 'shortcut', hint = null) {
   const first = givenTab?.id >= 0 ? givenTab : (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
   if (!first?.id) return 'No tab to save from.';
   if (busyTabs.has(first.id)) return 'Already saving in that tab.';
@@ -110,7 +114,7 @@ async function quickSave(command, givenTab, source = 'shortcut') {
     const repeat = pendingRepeat && pendingRepeat.tabId === tab.id && pendingRepeat.url === tab.url
       && pendingRepeat.destination === destination && Date.now() < pendingRepeat.until;
     pendingRepeat = null;
-    result = await archiveActiveTab(destination, !isSupported(tab.url || ''), stackPosts === true, tab, !repeat);
+    result = await archiveActiveTab(destination, !isSupported(tab.url || ''), stackPosts === true, tab, !repeat, hint);
     if (result.duplicate) {
       pendingRepeat = { tabId: tab.id, url: tab.url, destination, until: Date.now() + 15_000 };
       const again = source === 'menu' ? 'Choose it again' : `Press ${await shortcutOf(command) || 'the shortcut'} again`;
@@ -276,13 +280,13 @@ async function loadThreadsPost(url, opener) {
   }
 }
 
-async function archiveActiveTab(destination = 'downloads', universal = false, stack = false, givenTab = null, checkDuplicate = false) {
+async function archiveActiveTab(destination = 'downloads', universal = false, stack = false, givenTab = null, checkDuplicate = false, hint = null) {
   const tab = givenTab || (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
   if (!tab?.id || !tab.url) throw new Error('Could not find active tab.');
   if (!universal && !isSupported(tab.url)) return { ok: false, error: 'Open a post on a supported site — or enable I feel lucky.' };
 
   await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['collector.js'] });
-  const post = await chrome.tabs.sendMessage(tab.id, { type: 'COLLECT_POST' });
+  const post = await chrome.tabs.sendMessage(tab.id, { type: 'COLLECT_POST', hint });
   if (post?.platform === 'x' && post.statusId) await addXEmbedMedia(post);
   if (post?.platform === 'vimeo' && post.vimeo) await addVimeoVideo(post);
   // The collector itself failed (a site change it did not expect): say so
@@ -300,7 +304,10 @@ async function archiveActiveTab(destination = 'downloads', universal = false, st
         : post?.platform === 'x' && post.streamedVideo
         ? 'X videos need access to X\'s embed service. Click Save again and choose Allow when Chrome asks.'
         : post?.platform === 'threads' && !post.streamedVideo
-        ? 'Could not find this Threads post on the page. Reload the page (F5) and save again.'
+        ? (/\/post\//.test(post.url || '') ? 'Could not find this Threads post on the page. Reload the page (F5) and save again.'
+          : 'In the feed, right-click the post and choose Save post, or open the post first.')
+        : post?.platform === 'pinterest' && !/\/pin\//.test(post.url || '')
+        ? 'In the feed, right-click the pin and choose Save post, or open the pin first.'
         : post?.streamedVideo
         ? 'This video is streamed in chunks and cannot be saved by URL. Play it for a few seconds and retry; some videos cannot be saved.'
         : 'No media found. Open the post itself and wait for photos or videos to load.'
