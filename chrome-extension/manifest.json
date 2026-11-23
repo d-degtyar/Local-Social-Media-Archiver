@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Local Social Media Archiver",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "Save images and videos from the post you're viewing to Eagle or your Downloads folder, with the caption, author, and link.",
   "action": {
     "default_popup": "popup.html",
@@ -23,7 +23,27 @@
     "service_worker": "background.js",
     "type": "module"
   },
-  "permissions": ["activeTab", "scripting", "downloads"],
+  "commands": {
+    "save-to-eagle": {
+      "suggested_key": {
+        "default": "Alt+Shift+S"
+      },
+      "description": "Save the open post to Eagle"
+    },
+    "save-to-downloads": {
+      "suggested_key": {
+        "default": "Alt+Shift+D"
+      },
+      "description": "Save the open post to Downloads"
+    }
+  },
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "downloads",
+    "contextMenus",
+    "storage"
+  ],
   "host_permissions": [
     "https://www.instagram.com/*",
     "https://www.threads.com/*",

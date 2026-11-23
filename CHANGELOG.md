@@ -1,16 +1,24 @@
 # Changelog
 
-## 0.2.7 — Planned (code on hold, restore with git revert bfdbb33)
+## 0.2.7 — In Chrome Web Store review
 
 - Save without opening the popup: keyboard shortcuts Alt+Shift+S (to Eagle) and Alt+Shift+D (to Downloads), changeable in chrome://extensions/shortcuts, and "Save post to Eagle / to Downloads" in the right-click menu on pages, images, videos and links.
 - Shortcut and menu saves use the popup's Stack posts setting and work on any site through the same access a popup click gives (activeTab), so unsupported sites are tried without a permission prompt.
 - The result appears as a short notice in the corner of the page and on the toolbar badge (✓ or !, with the message as the icon's tooltip).
 - The popup's help (?) shows the current keys and a link to change them.
 - Repeat warning for shortcut and menu saves: a post already saved to the same place (Eagle or Downloads) shows "Already saved … today at 14:20" instead; the same key or menu item again within 15 seconds saves it anyway. Popup buttons never ask, so deliberate retries stay one click. The extension remembers saved post addresses locally (up to 5,000) for this.
+- The repeat warning follows the post, not the page address: Threads posts are keyed by their /@user/post/code link, and a Threads save that got only a video's cover is not recorded as saved, so saving again is not met by the warning.
+- Right-click a post's photo or video in a feed to save that post without opening it (Threads feeds and profiles, Pinterest home, boards and search): the menu passes the image, video or link that was clicked, and the collector saves the post it belongs to. Without it, saving from a feed says to right-click the post or open it.
+- Pinterest: carousel pins whose slides are videos save the videos (the 720p MP4 of each slide), not their cover images.
+- Pinterest videos are checked before saving (a one-byte request, which Pinterest's video server allows from pinterest.com). A pin that lists only a stream gets the MP4 Pinterest serves for it (/expMp4/…_720w.mp4, then 540w, 360w); the older /720p/….mp4 guess, which now answers 403 and made Eagle report "Download failed", is only a last try. A video with no working file saves its cover with a note instead of a save that fails later in Eagle.
+- Open tabs keep working after an update: the collector replaces the listener of an earlier injection instead of skipping itself when it finds one, so a copy left over from the previous version no longer blocks saving until the page is reloaded.
+- When the collector itself fails on a page, the popup and the page notice say so ("Could not read this page: …") instead of "No media found".
+- Repeat warning: on sites other than the supported ones, the address keeps its query (minus tracking parameters), so viewtopic.php?t=1 and ?t=2 are different posts. Saves finishing together in two tabs no longer overwrite each other's record.
+- Threads: the background tab opens in the same window as the post.
 - Test mode for development: an unpacked install opened as popup.html?test saves from the tab used just before it and can run the shortcut and menu path, so browser automation can test saves end to end. Store installs ignore it.
 - New permissions: contextMenus (the right-click items) and storage (keeps the Stack posts setting and the list of saved post addresses, locally). Neither adds an install warning.
 
-## 0.2.6 — In Chrome Web Store review (bug fixes only)
+## 0.2.6 — Published on the Chrome Web Store (bug fixes only)
 
 - Threads photos save at the largest size the page offers: when the page describes a post more than once (a 640px preview and the full post) or its images list bigger sizes in srcset, every photo takes its largest version, matched by media id or by the CDN file name. Instagram posts benefit the same way.
 - YouTube covers no longer drop to 640×480 on slow connections: the video's own data names its HD cover when there is one, and otherwise all sizes are checked at once with a 20-second limit instead of 4 seconds each.

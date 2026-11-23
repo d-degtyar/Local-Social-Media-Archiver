@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 2026-11-20_
+_Last updated: 2026-11-19_
 
 Local Social Media Archiver (the Chrome extension and the Eagle Companion plugin) does not collect, store, sell, or transmit personal data to the developer or to any third party.
 
@@ -22,7 +22,7 @@ When you click **Save to Eagle** or **Save to Downloads**, the extension reads t
 - No analytics, tracking, advertising, or telemetry.
 - No account, no developer server, no cloud processing.
 - Cookies and browsing history are not read or sent anywhere.
-- Nothing is kept by the extension between uses.
+- Between uses the extension keeps, in your browser's local storage only: its settings (whether explanations and Stack posts are on), and the addresses of posts you saved with the time and destination, so a keyboard-shortcut or right-click save can warn before saving the same post twice. This list never leaves your computer, holds at most 5,000 entries, and is deleted when you remove the extension.
 
 ## "I feel lucky"
 
