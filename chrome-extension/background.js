@@ -305,9 +305,9 @@ async function archiveActiveTab(destination = 'downloads', universal = false, st
         ? 'X videos need access to X\'s embed service. Click Save again and choose Allow when Chrome asks.'
         : post?.platform === 'threads' && !post.streamedVideo
         ? (/\/post\//.test(post.url || '') ? 'Could not find this Threads post on the page. Reload the page (F5) and save again.'
-          : 'In the feed, right-click the post and choose Save post, or open the post first.')
+          : 'In the feed, right-click the post\'s photo or video and choose Save post, or open the post first.')
         : post?.platform === 'pinterest' && !/\/pin\//.test(post.url || '')
-        ? 'In the feed, right-click the pin and choose Save post, or open the pin first.'
+        ? 'In the feed, right-click the pin\'s image and choose Save post, or open the pin first.'
         : post?.streamedVideo
         ? 'This video is streamed in chunks and cannot be saved by URL. Play it for a few seconds and retry; some videos cannot be saved.'
         : 'No media found. Open the post itself and wait for photos or videos to load.'

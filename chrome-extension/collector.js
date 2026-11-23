@@ -569,6 +569,11 @@
     let media = pin ? pinterestMedia(pin) : [];
     if (!media.length) media = pinterestDomMedia();
     media = dedupe(media).slice(0, MAX_MEDIA);
+    // Pinterest's video addresses are checked before saving: some pins list
+    // only a stream, and Eagle reports an address that answers 403 as a failed
+    // download long after the save looked successful.
+    const resolved = await resolvePinterestVideos(media);
+    media = resolved.media;
     const link = String(pin?.link || pin?.tracked_link || '').trim();
     const title = String(pin?.title || pin?.grid_title || pin?.seo_title || '').trim();
     const spam = looksLikeSpam(link, title);
@@ -585,7 +590,9 @@
       sourceUrl: link && !spam ? link : '',
       spamSource: spam,
       media,
-      streamedVideo: !media.some(item => item.kind === 'video') && hasStreamedVideo(document)
+      streamedVideo: !media.some(item => item.kind === 'video') && hasStreamedVideo(document),
+      note: resolved.missing ? `${resolved.missing === 1 ? 'A video' : `${resolved.missing} videos`} of this pin could not be saved: Pinterest only streams ${resolved.missing === 1 ? 'it' : 'them'}. Saved the cover instead.` : '',
+      incomplete: resolved.missing > 0
     };
   }
   function pinterestPinId() {
@@ -633,8 +640,8 @@
     if (Array.isArray(pages) && pages.length) {
       // Idea pins: one or more pages, each with image or video blocks.
       return pages.flatMap(page => (page.blocks || []).flatMap(block => {
-        const video = bestPinterestVideo(block.video?.video_list || block.video?.videoList);
-        if (video) return [{ url: video, kind: 'video' }];
+        const video = pinterestVideo(block.video?.video_list || block.video?.videoList, bestPinterestImage(block.image?.images || block.image));
+        if (video) return [video];
         const image = bestPinterestImage(block.image?.images || block.image);
         return image ? [{ url: image, kind: 'image' }] : [];
       }));
@@ -643,14 +650,14 @@
     if (Array.isArray(slots) && slots.length) {
       // A slide is a video when it lists one; its images are then the cover.
       return slots.flatMap(slot => {
-        const video = bestPinterestVideo(slot.videos?.video_list || slot.videos?.videoList || slot.video?.video_list);
-        if (video) return [{ url: video, kind: 'video' }];
+        const video = pinterestVideo(slot.videos?.video_list || slot.videos?.videoList || slot.video?.video_list, bestPinterestImage(slot.images));
+        if (video) return [video];
         const image = bestPinterestImage(slot.images);
         return image ? [{ url: image, kind: 'image' }] : [];
       });
     }
-    const video = bestPinterestVideo(pin.videos?.video_list || pin.videos?.videoList);
-    if (video) return [{ url: video, kind: 'video' }];
+    const video = pinterestVideo(pin.videos?.video_list || pin.videos?.videoList, bestPinterestImage(pin.images) || pin.imageSpec_orig?.url);
+    if (video) return [video];
     const image = bestPinterestImage(pin.images) || pin.imageSpec_orig?.url;
     return image ? [{ url: image, kind: 'image' }] : [];
   }
@@ -661,27 +668,56 @@
     return Object.values(images).filter(item => item?.url)
       .sort((a, b) => (b.width || 0) * (b.height || 0) - (a.width || 0) * (a.height || 0))[0]?.url || '';
   }
-  function bestPinterestVideo(list) {
-    if (!list || typeof list !== 'object') return '';
+  // A video to be checked before saving: the MP4s Pinterest lists, largest
+  // first, then MP4 addresses guessed from its stream, and the cover to fall
+  // back on. `url` is the first candidate, so duplicates still collapse.
+  function pinterestVideo(list, cover = '') {
+    if (!list || typeof list !== 'object') return null;
     const variants = Object.values(list).filter(item => /^https?:/i.test(item?.url || ''));
-    const mp4 = variants.filter(item => !/\.m3u8(?:\?|$)/i.test(item.url))
-      .sort((a, b) => (b.width || 0) - (a.width || 0))[0];
-    if (mp4) return mp4.url;
-    // Only an HLS playlist: Pinterest serves the same video as a 720p MP4.
-    const hls = variants[0]?.url;
-    return hls ? pinterestMp4FromHls(hls) : '';
+    const listed = variants.filter(item => !/\.m3u8(?:\?|$)/i.test(item.url))
+      .sort((a, b) => (b.width || 0) - (a.width || 0)).map(item => ({ url: item.url, listed: true }));
+    const guessed = variants.filter(item => /\.m3u8(?:\?|$)/i.test(item.url)).flatMap(item => pinterestMp4FromHls(item.url))
+      .map(url => ({ url, listed: false }));
+    const candidates = [...new Map([...listed, ...guessed].map(item => [item.url, item])).values()];
+    return candidates.length ? { url: candidates[0].url, kind: 'video', candidates, cover } : null;
   }
+  // Pinterest serves a stream's MP4 renditions as /expMp4/<path>_<width>w.mp4.
+  // The older /720p/<path>.mp4 form now mostly answers 403; it is tried last.
   function pinterestMp4FromHls(url) {
-    return /\/hls\//.test(url) ? url.replace(/\/hls\//, '/720p/').replace(/\.m3u8(\?.*)?$/, '.mp4') : '';
+    const match = url.match(/^(.*)\/hls\/(.+?)\.m3u8(?:\?.*)?$/);
+    if (!match) return [];
+    const [, base, path] = match;
+    return [`${base}/expMp4/${path}_720w.mp4`, `${base}/expMp4/${path}_540w.mp4`, `${base}/expMp4/${path}_360w.mp4`, `${base}/720p/${path}.mp4`];
+  }
+  // Keep the first candidate that answers; Pinterest's video server allows
+  // pinterest.com to ask (a one-byte range request). Listed MP4s are kept when
+  // the check itself cannot run; guessed ones only when they answer.
+  async function resolvePinterestVideos(media) {
+    let missing = 0;
+    const resolved = await Promise.all(media.map(async item => {
+      if (item.kind !== 'video' || !item.candidates) return item;
+      for (const candidate of item.candidates) {
+        try {
+          const response = await fetch(candidate.url, { headers: { Range: 'bytes=0-0' }, credentials: 'omit' });
+          response.body?.cancel?.();
+          if (response.ok) return { url: candidate.url, kind: 'video' };
+        } catch { if (candidate.listed) return { url: candidate.url, kind: 'video' }; }
+      }
+      missing++;
+      return item.cover ? { url: item.cover, kind: 'image' } : null;
+    }));
+    return { media: resolved.filter(Boolean), missing };
   }
   function pinterestDomMedia() {
     // Last resort when no pin data was found: the close-up media only.
     const scope = document.querySelector('[data-test-id="closeup-body"], [data-test-id="pin-closeup"], [data-test-id="closeup-image"], [data-test-id="pin-closeup-image"]');
     if (!scope) return [];
-    const video = [...scope.querySelectorAll('video')].map(item => item.currentSrc || item.src || '')
-      .map(url => /\.m3u8/i.test(url) ? pinterestMp4FromHls(url) : url)
-      .find(url => /^https?:/i.test(url));
-    if (video) return [{ url: video, kind: 'video' }];
+    const player = [...scope.querySelectorAll('video')].find(item => /^https?:/i.test(item.currentSrc || item.src || ''));
+    const source = player ? player.currentSrc || player.src : '';
+    if (source) {
+      const candidates = (/\.m3u8/i.test(source) ? pinterestMp4FromHls(source).map(url => ({ url, listed: false })) : [{ url: source, listed: true }]);
+      if (candidates.length) return [{ url: candidates[0].url, kind: 'video', candidates, cover: player.poster || '' }];
+    }
     const image = [...scope.querySelectorAll('img')].map(largestSrc)
       .find(url => /pinimg\.com/i.test(url));
     return image ? [{ url: image.replace(/\/\d+x(?:\d+)?\//, '/originals/'), kind: 'image' }] : [];
